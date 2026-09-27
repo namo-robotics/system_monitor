@@ -41,6 +41,9 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Check build script archive naming
+        run: bash tests/build-script.sh
+
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
         run: |

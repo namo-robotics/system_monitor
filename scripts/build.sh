@@ -58,14 +58,19 @@ fi
 # Normalize LLVM's canonical triples to the release scripts' public filenames.
 if [[ $(uname -s) == Darwin ]]; then
   package_target=${SUN_TARGET:-arm64-apple-darwin}
-  canonical_target=aarch64-apple-darwin
+  canonical_target=aarch64-unknown-darwin
 else
   package_target=${SUN_TARGET:-$(uname -m)-linux-gnu}
   canonical_target="${package_target%%-*}-unknown-linux-gnu"
 fi
 canonical_archive="dist/system_monitor-$canonical_target.tar.gz"
 package_archive="dist/system_monitor-$package_target.tar.gz"
-if [[ "$canonical_archive" != "$package_archive" && -f "$canonical_archive" ]]; then
+if [[ ! -f "$canonical_archive" ]]; then
+  echo "Sun did not produce the expected package: $canonical_archive" >&2
+  echo "Available archives:" >&2
+  find dist -maxdepth 1 -name '*.tar.gz' -print >&2
+  exit 1
+fi
+if [[ "$canonical_archive" != "$package_archive" ]]; then
   cp "$canonical_archive" "$package_archive"
 fi
-test -f "$package_archive"
