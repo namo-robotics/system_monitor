@@ -2,7 +2,21 @@
 # Build the monitor with the latest installed Sun compiler.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-SUN_BIN=${SUN_BIN:-sun}
+if [[ -z "${SUN_BIN:-}" ]]; then
+  if [[ -x "$PWD/.ci/toolchain/bin/sun" ]]; then
+    SUN_BIN="$PWD/.ci/toolchain/bin/sun"
+  else
+    SUN_BIN=sun
+  fi
+fi
+export SUN_GIT_CACHE=${SUN_GIT_CACHE:-"$PWD/.ci/git-cache"}
+compiler_help=$("$SUN_BIN" --help 2>&1)
+if [[ "$compiler_help" != *sun-config.json* ]]; then
+  echo "This project needs a Sun compiler with sun-config.json support." >&2
+  echo "Run scripts/ci-toolchain.sh, then rerun scripts/build.sh." >&2
+  echo "If SUN_BIN is set, unset it or point it to a compatible compiler." >&2
+  exit 1
+fi
 link_flags=()
 if [[ $(uname -s) == Darwin ]]; then
   link_flags+=(--dynamic -lproc)

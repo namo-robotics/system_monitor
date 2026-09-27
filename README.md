@@ -51,10 +51,12 @@ Use a current Sun compiler. On Linux x86_64:
 ```sh
 scripts/ci-toolchain.sh
 bash scripts/setup-musl.sh
-export SUN_BIN="$PWD/.ci/toolchain/bin/sun"
 scripts/build.sh
 build/system_monitor
 ```
+
+The build script prefers `.ci/toolchain/bin/sun`, then falls back to `sun` on
+`PATH`. Set `SUN_BIN` to override the compiler explicitly.
 
 Or select a view directly:
 
