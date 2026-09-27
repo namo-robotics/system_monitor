@@ -1,0 +1,95 @@
+/* Tests resource parsing and calculations independently of the host. */
+public module system_monitor {
+  using std;
+  /* Groups resource collector and navigation checks. */
+  module resource_tests {
+    /* Checks rates for elapsed time, idle links, resets and initial samples. */
+    test_function rates_use_elapsed_time() {
+      std.test.assert(traffic_rate(100, 1124, 500) == 2048.0, "actual sampling interval");
+      std.test.assert(traffic_rate(100, 100, 500) == 0.0, "idle interface");
+      std.test.assert(traffic_rate(100, 99, 500) < 0.0, "counter reset");
+      std.test.assert(traffic_rate(0, 100, 0) < 0.0, "missing baseline");
+    }
+    /* Verifies receive and transmit columns and aggregated error counters. */
+    test_function parses_interface_counters() {
+      var a = make_heap_allocator();
+      var t = parse_traffic(a, String(" eth0: 1024 10 2 3 0 0 0 0 4096 20 4 5 0 0 0 0"));
+      std.test.assert(t.name.equals_literal("eth0"), "trimmed interface");
+      std.test.assert_eq(t.received, 1024i64);
+      std.test.assert_eq(t.sent, 4096i64);
+      std.test.assert_eq(t.errors, 6i64);
+      std.test.assert_eq(t.drops, 8i64);
+    }
+    /* Keeps invalid sensor readings distinct from real zero temperatures. */
+    test_function missing_temperatures_are_unknown() {
+      var value = String("");
+      std.test.assert(temperature_text(value).equals_literal("N/A"), "missing sensor");
+      value = String("42000");
+      std.test.assert(temperature_text(value).equals_literal("42.0"), "millidegrees");
+      value = String("-5500");
+      std.test.assert(temperature_text(value).equals_literal("-5.5"), "subzero sensor");
+    }
+    /* Rejects malformed interface rows instead of inventing counters. */
+    test_function malformed_traffic_is_rejected() {
+      var a = make_heap_allocator();
+      var rejected = false;
+      try {
+        parse_traffic(a, String("eth0: 1 2"));
+      } catch (e: ref IError) {
+        rejected = true;
+      }
+      std.test.assert(rejected, "short record rejected");
+    }
+    /* Keeps filesystem and mount names distinct from numeric capacity columns. */
+    test_function disk_rows_preserve_mounts_and_units() {
+      var a = make_heap_allocator();
+      var row = disk_row(a, String("/dev/disk name 1000 250 700 27% /media/My Disk"));
+      std.test.assert(row.get("filesystem").as_string().equals_literal("/dev/disk name"), "filesystem with spaces");
+      std.test.assert(row.get("mount").as_string().equals_literal("/media/My Disk"), "mount with spaces");
+      std.test.assert_eq(row.get("total_bytes").as_i64(), 1024000i64);
+      std.test.assert_eq(row.get("available_bytes").as_i64(), 716800i64);
+      std.test.assert_eq(row.get("used_percent").as_i64(), 27i64);
+      var rejected = false;
+      try {
+        disk_row(a, String("Filesystem 1024-blocks Used Available Capacity Mounted on"));
+      } catch (e: ref IError) {
+        rejected = true;
+      }
+      std.test.assert(rejected, "header cannot become a measurement");
+      row = disk_row(a, String("none 0 0 0 - /empty"));
+      std.test.assert(row.get("used_percent").is_null(), "unknown filesystem percentage");
+      std.test.assert_eq(row.get("total_bytes").as_i64(), 0i64);
+    }
+    /* Preserves the states and descriptions used by service tables and charts. */
+    test_function service_rows_expose_failed_states() {
+      var a = make_heap_allocator();
+      var row = service_row(a, String("camera.service loaded failed failed Robot camera service"));
+      std.test.assert(row.get("active").as_string().equals_literal("failed"), "failed state");
+      std.test.assert(row.get("description").as_string().equals_literal("Robot camera service"), "description");
+    }
+    /* Distinguishes cold, critical and unreadable sensors without inventing thresholds. */
+    test_function structured_sensor_values_preserve_unknowns() {
+      var a = make_heap_allocator();
+      var row = sensor_row(a, String("cold"), String("-5500"), String(""));
+      std.test.assert(row.get("celsius").as_f64() == -5.5, "signed Celsius");
+      std.test.assert(row.get("critical_celsius").is_null(), "unknown critical limit");
+      std.test.assert(row.get("status").as_string().equals_literal("no threshold"), "not assumed healthy");
+      row = sensor_row(a, String("hot"), String("90000"), String("90000"));
+      std.test.assert(row.get("status").as_string().equals_literal("critical"), "threshold reached");
+      row = sensor_row(a, String("missing"), String("invalid"), String("90000"));
+      std.test.assert(row.get("celsius").is_null(), "missing is not zero");
+      std.test.assert(row.get("status").as_string().equals_literal("unavailable"), "missing status");
+      std.test.assert(rate_json(-1.0).is_null(), "unknown rate");
+      std.test.assert(rate_json(0.0).as_f64() == 0.0, "idle rate is real zero");
+    }
+    /* Verifies all menu shortcuts select a recognized monitor. */
+    test_function menu_choices_are_valid() {
+      for (var key: u8 = b'1'; key <= b'5'; key = key + 1u8) {
+        var choice = monitor_choice(key);
+        std.test.assert(valid_monitor(choice), "known view");
+        std.test.assert(not choice.equals_literal("menu"), "selects a monitor");
+      }
+      std.test.assert(not valid_monitor(String("unknown")), "reject unknown view");
+    }
+  }
+}

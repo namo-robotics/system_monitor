@@ -1,0 +1,105 @@
+/* Checks resource history semantics and terminal layout independently of host data. */
+public module system_monitor {
+  using std;
+
+  /* Creates one optional measurement for graph continuity tests. */
+  function resource_test_frame(a: const ref HeapAllocator, elapsed: i64, valid: bool) ResourceFrame throws IError {
+    var frame = ResourceFrame(a, String("disk"), elapsed);
+    var reading = ResourceReading();
+    reading.id = String("root");
+    reading.first = 50.0;
+    reading.first_valid = valid;
+    frame.add(reading);
+    return frame;
+  }
+
+  /* Leaves missing readings blank and draws strokes rather than filled areas. */
+  test_function resource_history_breaks_missing_samples() {
+    var a = make_heap_allocator();
+    var history = ResourceHistory(a);
+    history.duration = 1000;
+    history.add(resource_test_frame(a, 0, true));
+    history.add(resource_test_frame(a, 500, false));
+    history.add(resource_test_frame(a, 1000, true));
+    var canvas = DotCanvas(a, 11, 2);
+    history.trace(canvas, String("disk"), String("root"), false, 0, 0.0, 100.0, 500);
+    std.test.assert_eq(canvas.masks.get(5), 0i64);
+    std.test.assert_eq(canvas.masks.get(16), 0i64);
+    std.test.assert(canvas.masks.get(11) != 0 and canvas.masks.get(21) != 0, "endpoints remain visible");
+    var line = DotCanvas(a, 11, 2);
+    resource_stroke(line, 0, 2, 20, 2, 0);
+    std.test.assert(line.masks.get(5) != 0, "line connects points");
+    std.test.assert_eq(line.masks.get(16), 0i64);
+  }
+
+  /* Evicts old measurements by time and memory without exceeding the configured estimate. */
+  test_function resource_history_bounds_storage() {
+    var a = make_heap_allocator();
+    var history = ResourceHistory(a);
+    history.duration = 1000;
+    history.limit = 500;
+    history.add(resource_test_frame(a, 0, true));
+    history.add(resource_test_frame(a, 500, true));
+    history.add(resource_test_frame(a, 1000, true));
+    std.test.assert_eq(history.frames.size(), 2i64);
+    std.test.assert(history.bytes <= history.limit, "memory bounded");
+    history.add(resource_test_frame(a, 3000, true));
+    std.test.assert_eq(history.frames.size(), 1i64);
+    history.limit = 1;
+    history.add(resource_test_frame(a, 4000, true));
+    std.test.assert_eq(history.frames.size(), 0i64);
+  }
+
+  /* Distinguishes cold temperatures and unavailable rates, and aggregates service states. */
+  test_function resource_history_preserves_measurement_meanings() {
+    var a = make_heap_allocator();
+    var data = Resources(a);
+    data.rows = parse_json(a, String("[{\"sensor\":\"cold\",\"celsius\":-12.5,\"critical_celsius\":null,\"status\":\"no threshold\"}]"));
+    var cold = resource_frame(a, data, String("temperature"), 0);
+    std.test.assert(cold.readings.get(0).first_valid and not cold.readings.get(0).second_valid, "nullable threshold");
+    std.test.assert_eq(cold.readings.get(0).first, -12.5);
+    std.test.assert(resource_y(-12.5, -20.0, 20.0, 4) > resource_y(12.5, -20.0, 20.0, 4), "signed scale");
+    data.rows = parse_json(a, String("[{\"interface\":\"eth0\",\"rx_bytes_per_sec\":null,\"tx_bytes_per_sec\":2048}]"));
+    var net = resource_frame(a, data, String("network"), 0);
+    std.test.assert(not net.readings.get(0).first_valid, "missing rate remains missing");
+    std.test.assert_eq(net.readings.get(0).second, 2.0);
+    data.rows = parse_json(a, String("[{\"active\":\"active\"},{\"active\":\"failed\"},{\"active\":\"inactive\"}]"));
+    var services = resource_frame(a, data, String("service"), 0);
+    std.test.assert_eq(services.readings.get(0).first, 1.0);
+    std.test.assert_eq(services.readings.get(0).second, 1.0);
+  }
+
+  /* Checks the minimum screen size, selection identity and visible dotted chart. */
+  test_function resource_terminal_fits_and_tracks_selection() {
+    var a = make_heap_allocator();
+    var data = Resources(a);
+    var view = ResourceView(a);
+    var terminal = Terminal(a, false);
+    var o = Options();
+    o.monitor = String("temperature");
+    terminal.columns = 65;
+    terminal.rows = 18;
+    data.rows = parse_json(a, String("[{\"sensor\":\"cold\",\"celsius\":-12.5,\"critical_celsius\":80,\"status\":\"normal\"},{\"sensor\":\"hot\",\"celsius\":90,\"critical_celsius\":80,\"status\":\"critical\"}]"));
+    view.history.add(resource_frame(a, data, o.monitor, 0));
+    terminal.selected = String("hot");
+    var text = view.render(a, data, terminal, o);
+    std.test.assert_eq(terminal.selected_row, 1i64);
+    std.test.assert(text.contains("TEMPERATURE HISTORY") and text.contains("Celsius") and text.contains("critical"), "table and chart included");
+    var lines = text.split(a, 10u8);
+    std.test.assert(lines.size() <= terminal.rows, "no vertical overflow");
+    for (var i: i64 = 0; i < lines.size(); i = i + 1) {
+      var width: i64 = 0;
+      var line: ref String = lines.get(i);
+      for (var j: i64 = 0; j < line.length(); j = j + 1) {
+        var ch = line.at(j);
+        if (ch != 13u8 and (ch < 128u8 or ch >= 192u8)) {
+          width = width + 1;
+        }
+      }
+      std.test.assert(width < terminal.columns, "no horizontal overflow");
+    }
+    terminal.columns = 40;
+    var compact = view.render(a, data, terminal, o);
+    std.test.assert(compact.contains("Enlarge terminal"), "compact fallback");
+  }
+}

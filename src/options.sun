@@ -1,0 +1,156 @@
+/* Parses and validates configuration before any monitoring side effects. */
+public module system_monitor {
+  using std;
+
+  /* Holds the supported terminal, history, and recording settings. */
+  class Options {
+    var monitor: String = String("process");
+    var ui: String = String("terminal");
+    var port: i64 = 8080;
+    var top: i64 = 10;
+    var memory: bool = false;
+    var interval: i64 = 1000;
+    var history: i64 = 600000;
+    var graph_window: i64 = 60000;
+    var budget: i64 = 67108864;
+    var record: String = String("");
+    var replay: String = String("");
+    var labels: String = String("");
+    var samples: i64 = 0;
+    var help: bool = false;
+    var version: bool = false;
+
+    /* Applies one validated option without accessing external resources. */
+    method set(a: const ref HeapAllocator, key: const ref String, value: ref String) void throws IError {
+      if (key.equals_literal("--monitor")) {
+        if (not valid_monitor(value)) {
+          throw Error(1, "monitor must be process, disk, service, network, temperature, or menu");
+        }
+        this.monitor = value.clone(a);
+      } else if (key.equals_literal("--ui")) {
+        if (not value.equals_literal("terminal") and not value.equals_literal("web") and not value.equals_literal("both")) {
+          throw Error(1, "ui must be terminal, web, or both");
+        }
+        this.ui = value.clone(a);
+      } else if (key.equals_literal("--port")) {
+        this.port = bounded_integer(value, 1, 65535);
+      } else if (key.equals_literal("--top")) {
+        this.top = parse_top(value);
+      } else if (key.equals_literal("--sort")) {
+        this.memory = parse_sort(value);
+      } else if (key.equals_literal("--interval")) {
+        this.interval = parse_duration(value);
+      } else if (key.equals_literal("--graph-window")) {
+        this.graph_window = parse_duration(value);
+      } else if (key.equals_literal("--history")) {
+        this.history = parse_duration(value);
+      } else if (key.equals_literal("--memory-limit")) {
+        this.budget = bounded_integer(value, 1, 4096) * 1048576;
+      } else if (key.equals_literal("--samples")) {
+        this.samples = bounded_integer(value, 1, 2147483647);
+      } else if (key.equals_literal("--record")) {
+        this.record = value.clone(a);
+      } else if (key.equals_literal("--replay")) {
+        this.replay = value.clone(a);
+      } else if (key.equals_literal("--labels")) {
+        this.labels = value.clone(a);
+      } else {
+        throw Error(1, "unknown option; see --help");
+      }
+    }
+
+    /* Rejects conflicting input and output modes. */
+    method validate() void throws IError {
+      if (not this.ui.equals_literal("terminal") and not web_supported()) {
+        throw Error(1, "web hosting requires the Linux x86_64 sun_serve library");
+      }
+      if (not this.record.is_empty() and not this.replay.is_empty()) {
+        throw Error(1, "record and replay cannot be combined");
+      }
+      if (not this.labels.is_empty() and not this.replay.is_empty()) {
+        throw Error(1, "replay uses recorded labels; --labels is for live sessions");
+      }
+    }
+  }
+
+  /* Parses an integer within a caller-supplied inclusive range. */
+  function bounded_integer(value: const ref String, low: i64, high: i64) i64 throws IError {
+    var n = number(value);
+    if (n < low or n > high) {
+      throw Error(1, "numeric option is outside its allowed range; see --help");
+    }
+    return n;
+  }
+
+  /* Converts a validated duration in seconds to milliseconds. */
+  function parse_duration(value: ref String) i64 throws IError {
+    var seconds: f64 = 0.0;
+    match value.parse_f64() {
+      Option.Some(n) => {
+        seconds = n;
+      },
+      Option.None => {
+        throw Error(1, "duration must be seconds");
+      }
+    };
+    if (not (seconds >= 0.1 and seconds <= 604800.0)) {
+      throw Error(1, "duration must be between 0.1 and 604800 seconds");
+    }
+    return _convert<i64>(seconds * 1000.0);
+  }
+
+  /* Parses a display limit, using zero internally for all processes. */
+  function parse_top(value: const ref String) i64 throws IError {
+    if (value.equals_literal("all")) {
+      return 0;
+    }
+    return bounded_integer(value, 1, 2147483647);
+  }
+
+  /* Chooses the resource used for descending process ranking. */
+  function parse_sort(value: const ref String) bool throws IError {
+    if (value.equals_literal("memory")) {
+      return true;
+    }
+    if (value.equals_literal("cpu")) {
+      return false;
+    }
+    throw Error(1, "sort must be cpu or memory");
+  }
+
+  /* Parses the argument vector without changing files or terminal settings. */
+  function options(a: const ref HeapAllocator, argc: i32, argv: raw_ptr<raw_ptr<u8>>) Options throws IError {
+    var o = Options();
+    for (var i: i32 = 1; i < argc; i = i + 1) {
+      var key = from_c_str(a, unsafe { _load<raw_ptr<u8>>(argv, i); });
+      if (key.equals_literal("--help") or key.equals_literal("-h")) {
+        o.help = true;
+        continue;
+      }
+      if (key.equals_literal("--version")) {
+        o.version = true;
+        continue;
+      }
+      if (i + 1 >= argc) {
+        throw Error(1, "option requires a value; see --help");
+      }
+      i = i + 1;
+      var value = from_c_str(a, unsafe { _load<raw_ptr<u8>>(argv, i); });
+      if (value.is_empty()) {
+        throw Error(1, "option values must not be empty");
+      }
+      o.set(a, key, value);
+    }
+    // Preserve the old menu option as an alias for the default tab.
+    if (o.monitor.equals_literal("menu")) {
+      o.monitor = String("process");
+    }
+    if (not o.monitor.equals_literal("process")) {
+      if (not o.record.is_empty() or not o.replay.is_empty() or not o.labels.is_empty()) {
+        throw Error(1, "recording, replay, and labels require --monitor process");
+      }
+    }
+    o.validate();
+    return o;
+  }
+}

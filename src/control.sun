@@ -1,0 +1,28 @@
+/* Process signalling with explicit identity and signal validation. */
+public module system_monitor {
+  using std;
+
+  /* Reads the monitor's own PID so it cannot accidentally signal itself. */
+  extern "C" function pm_getpid() i32 as "getpid";
+
+  /* Rejects group targets and rechecks identity before sending a supported signal. */
+  function control_process(a: ref HeapAllocator, pid: i64, start: i64, signal: i32) String {
+    if (pid <= 1 or pid > 2147483647 or pid == _convert<i64>(unsafe { pm_getpid(); })) {
+      return String("Cannot signal this PID");
+    }
+    if (signal != 15 and signal != 9) {
+      return String("Unsupported process signal");
+    }
+    try {
+      signal_process(a, _convert<i32>(pid), start, signal);
+    } catch (e: ref IError) {
+      return String("Signal failed: process exited, changed, or permission denied");
+    }
+    var result = String("Sent SIGTERM to PID ");
+    if (signal == 9) {
+      result = String("Sent SIGKILL to PID ");
+    }
+    result.append(pid);
+    return result;
+  }
+}

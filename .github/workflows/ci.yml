@@ -1,0 +1,215 @@
+# Build and test on native hosts; publish only a complete, tested release matrix.
+name: CI
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v[0-9]*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  compile:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: linux-x86_64
+            triple: x86_64-linux-gnu
+          - runner: ubuntu-24.04
+            target: linux-arm64
+            triple: aarch64-linux-gnu
+          - runner: macos-14
+            target: macos-arm64
+            triple: arm64-apple-darwin
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          curl --fail --location --retry 3 https://apt.llvm.org/llvm.sh -o "$RUNNER_TEMP/llvm.sh"
+          sudo bash "$RUNNER_TEMP/llvm.sh" 20
+          sudo apt-get install -y libarchive13t64 curl g++ make perl git
+
+      - name: Install musl toolchain and static native libraries
+        if: runner.os == 'Linux'
+        env:
+          TARGET_TRIPLE: ${{ matrix.triple }}
+        run: bash scripts/setup-musl.sh "${TARGET_TRIPLE%%-*}"
+
+      - name: Install macOS compiler runtime dependencies
+        if: runner.os == 'macOS'
+        run: brew install llvm libarchive
+
+      - name: Install latest Sun compiler and matching standard libraries
+        run: scripts/ci-toolchain.sh
+
+      - name: Select target standard library
+        env:
+          TARGET_TRIPLE: ${{ matrix.triple }}
+        run: |
+          echo "$GITHUB_WORKSPACE/.ci/toolchain/bin" >> "$GITHUB_PATH"
+          mkdir -p build
+          cp ".ci/toolchain/lib/sun/$TARGET_TRIPLE/stdlib.moon" build/stdlib.moon
+
+      - name: Check formatting
+        run: sun fmt --check src tests
+
+      - name: Build application and tests
+        env:
+          SUN_TARGET: ${{ matrix.target == 'linux-arm64' && matrix.triple || '' }}
+          BUILD_REVISION: ${{ github.sha }}
+        run: scripts/build.sh
+
+      - name: Bundle executables for native testing
+        run: tar -czf build/test-binaries.tar.gz build/system_monitor build/system_monitor_test build/acceptance dist/system_monitor-${{ matrix.triple }}.tar.gz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: test-binaries-${{ matrix.target }}
+          path: build/test-binaries.tar.gz
+          if-no-files-found: error
+          retention-days: 3
+
+  test:
+    name: Test ${{ matrix.target }}
+    needs: compile
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: linux-x86_64
+          - runner: ubuntu-24.04-arm
+            target: linux-arm64
+          - runner: macos-14
+            target: macos-arm64
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: test-binaries-${{ matrix.target }}
+          path: build
+
+      - name: Run native unit, workload, replay, and terminal tests
+        run: |
+          tar -xzf build/test-binaries.tar.gz
+          mkdir -p build/share/system_monitor
+          cp assets/dashboard.html build/share/system_monitor/dashboard.html
+          build/system_monitor_test
+          build/acceptance
+
+      - uses: actions/setup-node@v4
+        if: matrix.target == 'linux-x86_64'
+        with:
+          node-version: '22'
+
+      - name: Test dashboard tables and charts
+        if: matrix.target == 'linux-x86_64'
+        run: |
+          npm install --prefix "$RUNNER_TEMP/dashboard-dom" --no-audit --no-fund jsdom@29.1.1
+          NODE_PATH="$RUNNER_TEMP/dashboard-dom/node_modules" node tests/dashboard.cjs
+
+      - name: Package and smoke-test release archive
+        env:
+          PACKAGE_TARGET: ${{ matrix.target }}
+          PACKAGE_REF: ${{ github.ref_name }}
+          PACKAGE_SHA: ${{ github.sha }}
+          PACKAGE_REF_TYPE: ${{ github.ref_type }}
+          PACKAGE_EVENT: ${{ github.event_name }}
+        run: |
+          version="commit-${PACKAGE_SHA:0:12}"
+          if [[ "$PACKAGE_EVENT" == push && "$PACKAGE_REF_TYPE" == branch ]]; then version=dev; fi
+          if [[ "$PACKAGE_REF_TYPE" == tag ]]; then version="$PACKAGE_REF"; fi
+          scripts/package.sh "$version" "$PACKAGE_TARGET" "$PACKAGE_SHA"
+
+      - name: Upload tested packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: system-monitor-${{ matrix.target }}
+          path: dist/release/*
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publish Sun packages
+    needs: test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    concurrency:
+      group: release-${{ github.ref_type == 'tag' && github.ref_name || 'dev' }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: system-monitor-*
+          path: dist
+          merge-multiple: true
+
+      - name: Verify complete release and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || 'dev' }}
+          RELEASE_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          cd dist
+          for target in linux-x86_64 linux-arm64 macos-arm64; do
+            archive="system_monitor-$RELEASE_TAG-$target.tar.gz"
+            test -f "$archive"
+            sha256sum --check "$archive.sha256"
+          done
+          cat ./*.sha256 > SHA256SUMS
+          if [[ "$RELEASE_TAG" == dev ]]; then
+            # Keep the shared development tag aligned with the packaged commit.
+            tag_exists=$(gh api "repos/$GH_REPO/git/matching-refs/tags/dev" --jq 'any(.[]; .ref == "refs/tags/dev")')
+            if [[ "$tag_exists" == true ]]; then
+              gh api --method PATCH "repos/$GH_REPO/git/refs/tags/dev" -f sha="$RELEASE_SHA" -F force=true
+            else
+              gh api --method POST "repos/$GH_REPO/git/refs" -f ref=refs/tags/dev -f sha="$RELEASE_SHA"
+            fi
+            printf 'Latest development build.\n\nCommit: %s\n' "$RELEASE_SHA" > release-notes.md
+            if ! gh release view dev >/dev/null 2>&1; then
+              gh release create dev --verify-tag --draft --prerelease --latest=false --title 'Development Build' --notes-file release-notes.md
+            fi
+            gh release upload dev ./*.tar.gz SHA256SUMS --clobber
+            gh release edit dev --draft=false --prerelease --latest=false --title 'Development Build' --notes-file release-notes.md
+            exit 0
+          fi
+          # Keep partial uploads in a draft; reruns may resume an unfinished draft.
+          if gh release view "$RELEASE_TAG" --json isDraft > release.json 2>/dev/null; then
+            [[ "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" == true ]] || { echo 'Release already published; use a new tag' >&2; exit 1; }
+          else
+            gh release create "$RELEASE_TAG" --verify-tag --draft --generate-notes --title "$RELEASE_TAG"
+          fi
+          gh release upload "$RELEASE_TAG" ./*.tar.gz SHA256SUMS --clobber
+          gh release edit "$RELEASE_TAG" --draft=false

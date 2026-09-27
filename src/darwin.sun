@@ -1,0 +1,180 @@
+/* Apple Silicon process collection through libproc and sysctl. */
+public module system_monitor {
+  using std;
+  /* Lists process identifiers visible to the caller. */
+  extern "C" function pm_listpids(kind: u32, info: u32, out: raw_ptr<u8>, size: i32) i32 as "proc_listpids";
+  /* Copies one libproc information record into a caller-owned buffer. */
+  extern "C" function pm_pidinfo(pid: i32, flavor: i32, arg: u64, out: raw_ptr<u8>, size: i32) i32 as "proc_pidinfo";
+  /* Resolves a process executable path when permission permits. */
+  extern "C" function pm_pidpath(pid: i32, out: raw_ptr<u8>, size: u32) i32 as "proc_pidpath";
+  /* Reads a named system setting. */
+  extern "C" function pm_sysctlbyname(name: raw_ptr<u8>, out: raw_ptr<u8>, size: raw_ptr<u64>, input: raw_ptr<u8>, input_size: u64) i32 as "sysctlbyname";
+  /* Reads a numbered system setting, including process arguments. */
+  extern "C" function pm_sysctl(name: raw_ptr<u8>, count: u32, out: raw_ptr<u8>, size: raw_ptr<u64>, input: raw_ptr<u8>, input_size: u64) i32 as "sysctl";
+
+  /* Describes libproc's BSD process identity record. */
+  class BsdInfo {
+    var flags: u32 = 0;
+    var status: u32 = 0;
+    var exit_status: u32 = 0;
+    var pid: u32 = 0;
+    var ppid: u32 = 0;
+    var uid: u32 = 0;
+    var gid: u32 = 0;
+    var ruid: u32 = 0;
+    var rgid: u32 = 0;
+    var svuid: u32 = 0;
+    var svgid: u32 = 0;
+    var reserved: u32 = 0;
+    var comm: array<u8, 16> = [0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8];
+    var name: array<u8, 32> = [0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8];
+    var files: u32 = 0;
+    var pgid: u32 = 0;
+    var job: u32 = 0;
+    var device: u32 = 0;
+    var terminal_pgid: u32 = 0;
+    var nice: i32 = 0;
+    var start_seconds: u64 = 0;
+    var start_microseconds: u64 = 0;
+  }
+
+  /* Holds the conversion from Mach ticks to nanoseconds. */
+  class MachTimebase {
+    var numerator: u32 = 0;
+    var denominator: u32 = 0;
+  }
+  /* Reads the native Mach clock conversion. */
+  extern "C" function pm_timebase(info: ref MachTimebase) i32 as "mach_timebase_info";
+  /* Returns the frequency of libproc's native Mach CPU counters. */
+  function clock_ticks() i64 throws IError {
+    var info = MachTimebase();
+    if (unsafe { pm_timebase(info); } != 0 or info.numerator == 0) {
+      return 0;
+    }
+    return 1000000000 * _convert<i64>(info.denominator) / _convert<i64>(info.numerator);
+  }
+
+  /* Queries physical memory without requiring a task port. */
+  function physical_memory() i64 throws IError {
+    var name = String("hw.memsize");
+    var bytes: u64 = 0;
+    var size: u64 = 8;
+    var rc = unsafe { pm_sysctlbyname(name.c_str(), _bitcast<raw_ptr<u8>>(_address_of<u64>(bytes)), _address_of<u64>(size), null, 0); };
+    if (rc != 0) {
+      throw Error(1, "cannot query physical memory");
+    }
+    return _convert<i64>(bytes);
+  }
+
+  /* Reads a stable start identifier using a named ABI layout. */
+  function darwin_identity(pid: i32) i64 throws IError {
+    var info = BsdInfo();
+    var size = _convert<i32>(_sizeof<BsdInfo>());
+    var n = unsafe { pm_pidinfo(pid, 3, 0, _bitcast<raw_ptr<u8>>(_address_of<BsdInfo>(info)), size); };
+    if (n != size) {
+      throw Error(1, "process identity unavailable");
+    }
+    return _convert<i64>(info.start_seconds * 1000000 + info.start_microseconds);
+  }
+
+  /* Sends a POSIX signal to a single process. */
+  extern "C" function pm_kill(pid: i32, signal: i32) i32 as "kill";
+
+  /* Rechecks the observed identity immediately before signalling a macOS process. */
+  function signal_process(a: ref HeapAllocator, pid: i32, start: i64, signal: i32) void throws IError {
+    if (darwin_identity(pid) != start) {
+      throw Error(1, "process identity changed");
+    }
+    if (unsafe { pm_kill(pid, signal); } != 0) {
+      throw Error(1, "signal rejected");
+    }
+  }
+
+  /* Copies only argv from KERN_PROCARGS2, excluding environment variables. */
+  function darwin_arguments(a: const ref HeapAllocator, pid: i32) String throws IError {
+    var mib = ContiguousBuffer<i32>(a, 3);
+    mib.set(0, 1);
+    mib.set(1, 49);
+    mib.set(2, pid);
+    var data = ContiguousBuffer<u8>(a, 1048576);
+    var size: u64 = 1048576;
+    var rc = unsafe { pm_sysctl(mib.raw_data(), 3, data.raw_data(), _address_of<u64>(size), null, 0); };
+    var out = String("");
+    if (rc != 0 or size < 5) {
+      return out;
+    }
+    var argc = unsafe { _load<i32>(data.raw_data(), 0); };
+    var end = _convert<i64>(size);
+    var pos: i64 = 4;
+    while (pos < end and data.get(pos) != 0u8) {
+      pos = pos + 1;
+    }
+    while (pos < end and data.get(pos) == 0u8) {
+      pos = pos + 1;
+    }
+    for (var i: i32 = 0; i < argc and pos < end; i = i + 1) {
+      while (pos < end and data.get(pos) != 0u8) {
+        out.append_char(data.get(pos));
+        pos = pos + 1;
+      }
+      out.append_char(0u8);
+      pos = pos + 1;
+    }
+    return out;
+  }
+
+  /* Reads one process while preserving unavailable CPU and memory values. */
+  function darwin_process(a: const ref HeapAllocator, pid: i32) Process throws IError {
+    var p = Process();
+    p.pid = _convert<i64>(pid);
+    p.start = darwin_identity(pid);
+    var task = ContiguousBuffer<u64>(a, 12);
+    task.fill(0);
+    var n = unsafe { pm_pidinfo(pid, 4, 0, task.raw_data(), 96); };
+    if (n == 96) {
+      p.rss = _convert<i64>(task.get(1));
+      p.ticks = _convert<i64>(task.get(2) + task.get(3));
+    }
+    var path = ContiguousBuffer<u8>(a, 4096);
+    path.fill(0);
+    if (unsafe { pm_pidpath(pid, path.raw_data(), 4096); } > 0) {
+      p.exe = from_c_str(a, path.raw_data());
+    }
+    p.args = darwin_arguments(a, pid);
+    if (darwin_identity(pid) != p.start) {
+      throw Error(1, "process changed during collection");
+    }
+    label_process(a, p);
+    return p;
+  }
+
+  /* Samples every visible process, tolerating exits and permission failures. */
+  function collect(a: ref HeapAllocator, elapsed: i64) Frame throws IError {
+    var f = Frame(a);
+    f.elapsed = elapsed;
+    f.timestamp = std.time.read_unix_time_millis();
+    f.total_memory = physical_memory();
+    var needed = unsafe { pm_listpids(1, 0, null, 0); };
+    if (needed <= 0) {
+      throw Error(1, "cannot enumerate processes");
+    }
+    var capacity = _convert<i64>(needed) / 4 + 1024;
+    var pids = ContiguousBuffer<i32>(a, capacity);
+    var n = unsafe { pm_listpids(1, 0, pids.raw_data(), _convert<i32>(capacity * 4)); };
+    if (n <= 0) {
+      throw Error(1, "cannot read process list");
+    }
+    for (var i: i64 = 0; i < _convert<i64>(n) / 4; i = i + 1) {
+      var pid: i32 = pids.get(i);
+      if (pid <= 0) {
+        continue;
+      }
+      try {
+        f.processes.push(darwin_process(a, pid));
+      } catch (e: ref IError) {
+        f.inaccessible = f.inaccessible + 1;
+      }
+    }
+    return f;
+  }
+}

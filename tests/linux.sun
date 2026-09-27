@@ -1,0 +1,50 @@
+/* Linux-specific procfs parsing and collection checks. */
+public module system_monitor {
+  using std;
+  /* Groups related behavioral tests. */
+  module linux_tests {
+    /* Checks stable process handles without delivering a signal. */
+    test_function pidfd_supports_signal_probe() {
+      var a = make_heap_allocator();
+      var f = collect(a, 0);
+      var own = std.process.pid();
+      for (var i: i64 = 0; i < f.processes.size(); i = i + 1) {
+        var p = f.processes.get(i);
+        if (p.pid == _convert<i64>(own)) {
+          signal_process(a, own, p.start, 0);
+          return;
+        }
+      }
+      std.test.assert(false, "current process is visible");
+    }
+    /* Parses comm names containing spaces and closing parentheses. */
+    test_function stat_names_do_not_shift_fields() {
+      var a = make_heap_allocator();
+      var text = String("42 (worker ) with spaces) S 0 0 0 0 0 0 0 0 0 0 100 20 0 0 0 0 0 0 4321 0 10");
+      var p = parse_stat(a, text, 4096);
+      std.test.assert_eq(p.pid, 42i64);
+      std.test.assert_eq(p.start, 4321i64);
+      std.test.assert_eq(p.ticks, 120i64);
+      std.test.assert_eq(p.rss, 40960i64);
+    }
+    /* Rejects a truncated process record instead of inventing measurements. */
+    test_function truncated_stat_is_rejected() {
+      var a = make_heap_allocator();
+      var bad = String("42 (short) S 0");
+      var rejected = false;
+      try {
+        var p = parse_stat(a, bad, 4096);
+      } catch (e: ref IError) {
+        rejected = true;
+      }
+      std.test.assert(rejected, "truncated record");
+    }
+    /* Samples visible processes with physical memory and stable identities. */
+    test_function live_collection_has_identity_and_memory() {
+      var a = make_heap_allocator();
+      var f = collect(a, 0);
+      std.test.assert(f.processes.size() > 0, "visible processes");
+      std.test.assert(f.total_memory > 0, "physical memory");
+    }
+  }
+}

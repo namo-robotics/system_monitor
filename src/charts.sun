@@ -1,0 +1,56 @@
+/* Pure formatting helpers and sampled terminal history graphs. */
+public module system_monitor {
+  using std;
+
+  /* Bounds text length and removes terminal control characters. */
+  function safe_text(a: const ref HeapAllocator, s: const ref String, width: i64) String throws IError {
+    var out = String("");
+    for (var i: i64 = 0; i < s.length() and i < width; i = i + 1) {
+      var ch = s.at(i);
+      if (ch >= 32u8 and ch < 127u8) {
+        out.append_char(ch);
+      } else {
+        out.append("?");
+      }
+    }
+    return out;
+  }
+  /* Formats an available measurement with a decimal digit or an unavailable marker. */
+  function decimal(value: f64) String {
+    if (value < 0.0) {
+      return String("N/A");
+    }
+    var n = _convert<i64>(value * 10.0);
+    var out = String("");
+    out.append(n / 10);
+    out.append(".");
+    out.append(n % 10);
+    return out;
+  }
+  /* Pads a formatted value to its display column width. */
+  function padded(s: const ref String, width: i64) String {
+    var out = String("");
+    out.append(s);
+    while (out.length() < width) {
+      out.append(" ");
+    }
+    return out;
+  }
+
+  /* Reads one resource value for a stable identity without allocating strings. */
+  function history_value(f: ref Frame, pid: i64, start: i64, memory: bool) f64 throws IError {
+    for (var i: i64 = 0; i < f.processes.size(); i = i + 1) {
+      var p: ref Process = f.processes.get(i);
+      if (p.pid == pid and p.start == start) {
+        if (not memory) {
+          return p.cpu;
+        }
+        if (p.rss < 0) {
+          return -1.0;
+        }
+        return _convert<f64>(p.rss) / 1048576.0;
+      }
+    }
+    return -1.0;
+  }
+}

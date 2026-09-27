@@ -1,0 +1,267 @@
+/* Publishes read-only monitor data through the source-built sun_serve library. */
+public module system_monitor {
+  using std;
+  using sun_serve;
+
+  /* Reports that this target can host the browser dashboard. */
+  function web_supported() bool {
+    return true;
+  }
+
+  /* Loads the installed HTML resource relative to the running executable. */
+  function load_dashboard(a: ref HeapAllocator) String throws IError {
+    var buffer = ContiguousBuffer<u8>(a, 4096);
+    var executable = String("/proc/self/exe");
+    var size = unsafe { pm_readlink(executable.c_str(), buffer.raw_data(), 4096u64); };
+    if (size <= 0 or size >= 4096) {
+      throw Error(1, "cannot locate the dashboard executable");
+    }
+    var path = String(a, buffer, size);
+    match path.rfind_char(b'/') {
+      Option.Some(index) => {
+        var directory = path.substr(a, 0, index);
+        var resource = directory.clone(a);
+        resource.append("/../share/system_monitor/dashboard.html");
+        try {
+          return std.io.read_to_string(a, resource);
+        } catch (e: ref IError) {
+          resource = directory.clone(a);
+          resource.append("/share/system_monitor/dashboard.html");
+          return std.io.read_to_string(a, resource);
+        }
+      },
+      Option.None => {
+        throw Error(1, "cannot locate the dashboard directory");
+      }
+    };
+    return String("");
+  }
+
+  /* Holds serialized samples independently of the collector and its history. */
+  class Publication {
+    var html: String = String("");
+    var snapshot: String = String("null");
+    var history: String = String("[]");
+    var status: String = String("{}");
+    var resources: String = String("{}");
+  }
+
+  /* Serves immutable copies of the latest publication to browser clients. */
+  class DashboardHandler implements IHandler {
+    var state: Shared<Publication>;
+    /* Shares only published text with the sampling thread. */
+    init(state: Shared<Publication>) {
+      this.state = state;
+    }
+    /* Routes read-only requests and contains parsing failures. */
+    public method handle(req: const ref Request, resp: ref Response) void {
+      resp.add_header("Cache-Control", "no-store");
+      resp.add_header("X-Content-Type-Options", "nosniff");
+      if (not req.method_is("GET") and not req.method_is("HEAD")) {
+        resp.set_status(405);
+        resp.add_header("Allow", "GET, HEAD");
+        return;
+      }
+      if (req.path_is("/")) {
+        resp.set_content_type("text/html; charset=utf-8");
+        var guard = this.state.lock();
+        resp.set_body_string(guard.get().html);
+        return;
+      }
+      resp.set_content_type("application/json");
+      try {
+        this.api(req, resp);
+      } catch (e: ref IError) {
+        resp.set_status(400);
+        resp.set_body("{\"error\":\"invalid history identity\"}");
+      }
+    }
+    /* Copies a publication under a short lock, then filters outside it. */
+    method api(req: const ref Request, resp: ref Response) void throws IError {
+      var a = make_heap_allocator();
+      if (not req.path_is("/api/v1/view") and not req.path_is("/api/v1/snapshot") and not req.path_is("/api/v1/status") and not req.path_is("/api/v1/history") and not req.path_is("/api/v1/resources")) {
+        resp.set_status(404);
+        resp.set_body("{\"error\":\"not found\"}");
+        return;
+      }
+      var text = this.read(a, req);
+      if (req.path_is("/api/v1/history")) {
+        match req.query_param("id", a) {
+          Option.Some(id) => {
+            var parts = id.split(a, b':');
+            if (parts.size() != 2 or number(parts.get(0)) < 0 or number(parts.get(1)) < 0) {
+              throw Error(1, "invalid identity");
+            }
+            var frames = parse_json(a, text);
+            var points = create_json_array(a);
+            for (var i: i64 = 0; i < frames.len(); i = i + 1) {
+              var frame: ref Json = frames.at(i);
+              var point = create_json_object(a);
+              point.set(String("elapsed_ms"), Json(frame.get("elapsed_ms").as_i64()));
+              var rows: ref Json = frame.get("processes");
+              point.set(String("process"), Json());
+              for (var j: i64 = 0; j < rows.len(); j = j + 1) {
+                if (rows.at(j).get("id").as_string().equals(id)) {
+                  var row = rows.at(j).to_string(a);
+                  point.set(String("process"), parse_json(a, row));
+                }
+              }
+              points.push(point);
+            }
+            text = points.to_string(a);
+            resp.set_status(200);
+          },
+          Option.None => {}
+        };
+      }
+      resp.set_body_string(text);
+    }
+    /* Reads one consistent publication without borrowing collector state. */
+    method read(a: const ref HeapAllocator, req: const ref Request) String {
+      var guard = this.state.lock();
+      if (req.path_is("/api/v1/resources")) {
+        return guard.get().resources.clone(a);
+      }
+      if (req.path_is("/api/v1/snapshot")) {
+        return guard.get().snapshot.clone(a);
+      }
+      if (req.path_is("/api/v1/status")) {
+        return guard.get().status.clone(a);
+      }
+      if (req.path_is("/api/v1/history")) {
+        return guard.get().history.clone(a);
+      }
+      var text = String("{\"snapshot\":");
+      text.append(guard.get().snapshot);
+      text.append(",\"history\":");
+      text.append(guard.get().history);
+      text.append(",\"status\":");
+      text.append(guard.get().status);
+      text.append("}");
+      return text;
+    }
+    /* Rejects websocket upgrades; the dashboard polls complete snapshots. */
+    public method handle_websocket(req: const ref Request, handshake: ref WebSocketHandshake) void {}
+    /* Handles no websocket sessions. */
+    public method websocket_open(socket: const ref WebSocketHandle) void {}
+    /* Handles no websocket messages. */
+    public method websocket_message(socket: const ref WebSocketHandle, message: const ref WebSocketMessage) void {}
+    /* Handles no websocket close events. */
+    public method websocket_close(socket: const ref WebSocketHandle, code: i32) void {}
+    /* Handles no websocket errors. */
+    public method websocket_error(socket: const ref WebSocketHandle, code: i32) void {}
+  }
+
+  /* Serializes typed measurements and availability messages for browser tables and charts. */
+  function resource_json(a: ref HeapAllocator, resource: ref Resources) Json throws IError {
+    var view = create_json_object(a);
+    var lines = create_json_array(a);
+    for (var i: i64 = 0; i < resource.lines.size(); i = i + 1) {
+      lines.push(Json(resource.lines.get(i).clone(a)));
+    }
+    view.set(String("lines"), lines);
+    view.set(String("rows"), parse_json(a, resource.rows.to_string(a)));
+    view.set(String("message"), create_json_string(a, resource.message));
+    view.set(String("samples"), Json(resource.samples));
+    return view;
+  }
+
+  /* Owns optional server workers and stops them before shared state is released. */
+  class Web {
+    var state: Shared<Publication>;
+    var server: Option<Server<DashboardHandler>> = Option.None;
+    var enabled: bool = false;
+    var disk: Resources;
+    var service: Resources;
+    var network: Resources;
+    var temperature: Resources;
+    var resources_due: i64 = 0;
+    var resource_interval: i64 = 1000;
+    /* Starts localhost hosting only when web presentation was requested. */
+    init(a: ref HeapAllocator, options: ref Options) throws IError {
+      if (options.interval > this.resource_interval) {
+        this.resource_interval = options.interval;
+      }
+      this.disk = Resources(a);
+      this.service = Resources(a);
+      this.network = Resources(a);
+      this.temperature = Resources(a);
+      this.state = Shared<Publication>(a, Publication());
+      this.enabled = not options.ui.equals_literal("terminal");
+      if (not this.enabled) {
+        return;
+      }
+      var html = load_dashboard(a);
+      if (this.enabled) {
+        var guard = this.state.lock();
+        guard.get().html = html;
+      }
+      var cfg = Config(a);
+      cfg.add_listen(ipv4_loopback(), _convert<i32>(options.port));
+      cfg.access_log = false;
+      cfg.timeouts.drain_ms = 1000;
+      var handlers = Vec<DashboardHandler>(a, 1);
+      handlers.push(DashboardHandler(this.state.clone()));
+      var server = Server<DashboardHandler>(a, cfg, handlers);
+      server.start();
+      this.server = Option.Some(server);
+      var message = String("Web dashboard: http://127.0.0.1:");
+      message.append(options.port);
+      eprintln(message);
+    }
+    /* Serializes outside the publication lock using the same samples as the terminal. */
+    method publish(a: ref HeapAllocator, session: ref Session) void throws IError {
+      if (not this.enabled) {
+        return;
+      }
+      var snapshot = frame_json(a, session.previous).to_string(a);
+      var frames = create_json_array(a);
+      for (var i: i64 = 0; i < session.history.frames.size(); i = i + 1) {
+        frames.push(frame_json(a, session.history.frames.get(i)));
+      }
+      var history = frames.to_string(a);
+      var status = create_json_object(a);
+      status.set(String("version"), Json(1i64));
+      status.set(String("replay"), Json(not session.options.replay.is_empty()));
+      status.set(String("finished"), Json(session.finished));
+      status.set(String("history_ms"), Json(session.history.window()));
+      status.set(String("evicted"), Json(session.history.evicted));
+      status.set(String("graph_window_ms"), Json(session.options.graph_window));
+      status.set(String("top"), Json(session.options.top));
+      status.set(String("memory"), Json(session.options.memory));
+      var text = status.to_string(a);
+      var guard = this.state.lock();
+      guard.get().snapshot = snapshot;
+      guard.get().history = history;
+      guard.get().status = text;
+    }
+    /* Collects live host views independently of terminal navigation and process replay. */
+    method publish_resources(a: ref HeapAllocator, now: i64) void throws IError {
+      if (not this.enabled or now < this.resources_due) {
+        return;
+      }
+      this.disk.sample(a, String("disk"), now);
+      this.service.sample(a, String("service"), now);
+      this.network.sample(a, String("network"), now);
+      this.temperature.sample(a, String("temperature"), now);
+      var views = create_json_object(a);
+      views.set(String("disk"), resource_json(a, this.disk));
+      views.set(String("service"), resource_json(a, this.service));
+      views.set(String("network"), resource_json(a, this.network));
+      views.set(String("temperature"), resource_json(a, this.temperature));
+      var publication = create_json_object(a);
+      publication.set(String("monitors"), views);
+      publication.set(String("interval_ms"), Json(this.resource_interval));
+      publication.set(String("timestamp_ms"), Json(std.time.read_unix_time_millis()));
+      var text = publication.to_string(a);
+      var guard = this.state.lock();
+      guard.get().resources = text;
+      this.resources_due = now + this.resource_interval;
+    }
+
+    /* Stops and joins workers before the session is closed. */
+    method close() void {
+      this.server = Option.None;
+    }
+  }
+}

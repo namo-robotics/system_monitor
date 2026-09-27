@@ -1,0 +1,885 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>System Monitor</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font: 15px system-ui, sans-serif;
+      background: #0b1220;
+      color: #e2e8f0;
+    }
+
+    body {
+      max-width: 1400px;
+      margin: auto;
+      padding: 28px;
+    }
+
+    h1 {
+      font-size: 24px;
+      margin-bottom: 6px;
+    }
+
+    p {
+      color: #94a3b8;
+    }
+
+    header,
+    .controls {
+      display: flex;
+      gap: 18px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    header {
+      justify-content: space-between;
+    }
+
+    .controls {
+      margin: 24px 0;
+    }
+
+    select,
+    input,
+    button {
+      background: #18263b;
+      color: inherit;
+      border: 1px solid #40516b;
+      border-radius: 6px;
+      padding: 8px;
+    }
+
+    input {
+      width: 80px;
+    }
+
+    section {
+      background: #111d30;
+      border: 1px solid #293951;
+      border-radius: 10px;
+      padding: 18px;
+      margin-bottom: 18px;
+    }
+
+    h2 {
+      font-size: 16px;
+      margin: 0 0 12px;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 200px;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      font-size: 12px;
+      min-height: 32px;
+      margin-top: 8px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-variant-numeric: tabular-nums;
+    }
+
+    th,
+    td {
+      text-align: right;
+      padding: 10px;
+      border-bottom: 1px solid #293951;
+    }
+
+    th:nth-child(2),
+    td:nth-child(2) {
+      text-align: left;
+    }
+
+    td:nth-child(2) {
+      overflow-wrap: anywhere;
+    }
+
+    tbody tr {
+      cursor: pointer;
+    }
+
+    tr.selected {
+      background: #243e61;
+    }
+
+    .scroll {
+      overflow: auto;
+    }
+
+    #connection {
+      color: #7dd3fc;
+    }
+
+    [hidden] { display: none !important; }
+    .tabs { display: flex; gap: 8px; overflow-x: auto; margin: 24px 0 18px; padding-bottom: 8px; }
+    .tabs a { flex: 1 0 auto; text-align: center; text-decoration: none; padding: 13px 20px;
+      color: #94a3b8; border: 1px solid #293951; border-radius: 8px; background: #111d30; }
+    .tabs a[aria-selected="true"] { color: #e0f2fe; background: #164e63; border-color: #38bdf8; }
+    .tabs a:hover { color: #e2e8f0; border-color: #7dd3fc; }
+    :focus-visible { outline: 2px solid #7dd3fc; outline-offset: 3px; }
+    .view-heading { display: flex; justify-content: space-between; gap: 16px; align-items: center; margin: 20px 0; }
+    .view-heading h2 { font-size: 20px; margin-bottom: 4px; }
+    .view-heading p { margin: 0; }
+    .resource-table { min-width: 700px; }
+    .resource-table th, .resource-table td { text-align: left; }
+    .resource-table .numeric { text-align: right; white-space: nowrap; }
+    .resource-table tbody tr { cursor: default; }
+    .resource-table tbody tr:hover { background: #182b43; }
+    .resource-table thead { position: sticky; top: 0; background: #18263b; z-index: 1; }
+    .resource-table th button { border: 0; background: transparent; padding: 0; font: inherit; font-weight: 600; cursor: pointer; }
+    .table-scroll { max-height: 380px; overflow: auto; }
+    .table-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 14px; }
+    .table-tools input { width: min(250px, 65vw); }
+    .status { display: inline-block; padding: 3px 9px; border-radius: 12px; font-size: 12px; background: #26364d; white-space: nowrap; }
+    .status.good { color: #6ee7b7; background: #12392f; }
+    .status.bad { color: #fda4af; background: #4b2032; }
+    .status.warn { color: #fcd34d; background: #44351e; }
+    .notice { color: #fcd34d; margin: 0 0 16px; }
+    .chart-note { font-size: 13px; margin: 0 0 20px; }
+    .bar-row { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(120px, 3fr) 100px; align-items: center; gap: 14px; margin: 14px 0; }
+    .bar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+    .bar-value { text-align: right; font-variant-numeric: tabular-nums; font-size: 13px; }
+    .meter { height: 16px; position: relative; background: #24344c; border-radius: 4px; }
+    .meter-fill { position: absolute; height: 100%; border-radius: 4px; background: #38bdf8; }
+    .threshold { position: absolute; top: -4px; height: 24px; width: 2px; background: #fda4af; }
+    .stacked { display: flex; height: 38px; overflow: hidden; border-radius: 6px; background: #24344c; }
+    .stacked-segment { min-width: 1px; }
+    .chart-legend { display: flex; flex-wrap: wrap; gap: 20px; margin-top: 18px; }
+    .legend-dot { display: inline-block; width: 10px; height: 10px; margin-right: 7px; border-radius: 50%; }
+    .network-plot { display: block; width: 100%; height: auto; min-height: 180px; }
+    .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+    @media (max-width: 640px) {
+      .bar-row { grid-template-columns: minmax(90px, 1fr) minmax(80px, 2fr) 75px; gap: 8px; }
+    }
+    .resource-meta { display: flex; flex-wrap: wrap; gap: 20px; margin-bottom: 16px; color: #7dd3fc; }
+    @media (max-width: 640px) {
+      body { padding: 16px; }
+      .tabs a { padding: 12px 16px; }
+      .view-heading { align-items: flex-start; }
+    }
+
+    #detail {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
+    small {
+      color: #94a3b8;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>System Monitor</h1>
+      <p>One dashboard for your system’s live metrics</p>
+    </div>
+    <span id="connection" role="status">Connecting…</span>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="System monitors">
+    <a id="tab-process" role="tab" href="#process" aria-controls="process-view" aria-selected="true" tabindex="0">Processes</a>
+    <a id="tab-disk" role="tab" href="#disk" aria-controls="disk-view" aria-selected="false" tabindex="-1">Disks</a>
+    <a id="tab-service" role="tab" href="#service" aria-controls="service-view" aria-selected="false" tabindex="-1">Services</a>
+    <a id="tab-network" role="tab" href="#network" aria-controls="network-view" aria-selected="false" tabindex="-1">Network</a>
+    <a id="tab-temperature" role="tab" href="#temperature" aria-controls="temperature-view" aria-selected="false" tabindex="-1">Temperature</a>
+  </nav>
+
+  <div id="view-heading" class="view-heading" hidden>
+    <div><h2 id="view-title"></h2><p id="view-description"></p></div>
+    <button id="pause">Pause display</button>
+  </div>
+
+  <div id="process-view" role="tabpanel" aria-labelledby="tab-process" tabindex="0" hidden>
+  <div class="controls">
+    <label>
+      Rank by
+      <select id="sort">
+        <option value="cpu">CPU</option>
+        <option value="rss">Memory</option>
+      </select>
+    </label>
+    <label>
+      Show
+      <select id="top">
+        <option value="5">Top 5</option>
+        <option value="10" selected>Top 10</option>
+        <option value="0">All</option>
+        <option value="custom">Custom</option>
+      </select>
+    </label>
+    <input id="custom" type="number" min="1" max="100000" value="20"
+           aria-label="Custom process count" hidden>
+    <span id="summary"></span>
+  </div>
+
+  <section class="scroll">
+    <table>
+      <thead>
+        <tr>
+          <th>PID</th>
+          <th>Name</th>
+          <th>CPU %</th>
+          <th>Memory %</th>
+          <th>RSS MiB</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2 id="history-title">Top 5 CPU history · % of one core</h2>
+    <canvas id="history" aria-labelledby="history-title"></canvas>
+    <div class="legend" id="history-legend"></div>
+    <p id="detail">Select a row to inspect its process identity.</p>
+    <small>Read-only view. Collection and recording continue while the display is paused.</small>
+  </section>
+
+  </div>
+
+  <div id="disk-view" role="tabpanel" aria-labelledby="tab-disk" tabindex="0" hidden>
+    <div class="resource-meta"><span id="disk-updated">Waiting for data…</span><span>Live host data</span></div>
+    <p id="disk-notice" class="notice" role="status" hidden></p>
+    <section>
+      <div class="table-tools">
+        <h2>Filesystems</h2>
+        <label class="sr-only" for="disk-filter">Filter filesystems</label>
+        <input id="disk-filter" type="search" placeholder="Filter filesystems…">
+        <span id="disk-count"></span>
+      </div>
+      <div class="table-scroll">
+        <table class="resource-table"><caption class="sr-only">Filesystems</caption>
+          <thead id="disk-head"></thead><tbody id="disk-rows"></tbody>
+        </table>
+      </div>
+    </section>
+    <section aria-labelledby="disk-chart-title">
+      <div class="table-tools"><h2 id="disk-chart-title">Filesystem usage</h2></div>
+      <p class="chart-note">The fullest filesystems, up to eight. Bars show used capacity from 0% to 100%.</p>
+      <div id="disk-chart"></div>
+    </section>
+  </div>
+
+  <div id="service-view" role="tabpanel" aria-labelledby="tab-service" tabindex="0" hidden>
+    <div class="resource-meta"><span id="service-updated">Waiting for data…</span><span>Live host data</span></div>
+    <p id="service-notice" class="notice" role="status" hidden></p>
+    <section>
+      <div class="table-tools">
+        <h2>Services</h2>
+        <label class="sr-only" for="service-filter">Filter services</label>
+        <input id="service-filter" type="search" placeholder="Filter services…">
+        <span id="service-count"></span>
+      </div>
+      <div class="table-scroll">
+        <table class="resource-table"><caption class="sr-only">Services</caption>
+          <thead id="service-head"></thead><tbody id="service-rows"></tbody>
+        </table>
+      </div>
+    </section>
+    <section aria-labelledby="service-chart-title">
+      <div class="table-tools"><h2 id="service-chart-title">Service states</h2></div>
+      <p class="chart-note">Counts of the services in the filtered table, grouped by active state.</p>
+      <div id="service-chart"></div>
+    </section>
+  </div>
+
+  <div id="network-view" role="tabpanel" aria-labelledby="tab-network" tabindex="0" hidden>
+    <div class="resource-meta"><span id="network-updated">Waiting for data…</span><span>Live host data</span></div>
+    <p id="network-notice" class="notice" role="status" hidden></p>
+    <section>
+      <div class="table-tools">
+        <h2>Network interfaces</h2>
+        <label class="sr-only" for="network-filter">Filter network interfaces</label>
+        <input id="network-filter" type="search" placeholder="Filter network interfaces…">
+        <span id="network-count"></span>
+      </div>
+      <div class="table-scroll">
+        <table class="resource-table"><caption class="sr-only">Network interfaces</caption>
+          <thead id="network-head"></thead><tbody id="network-rows"></tbody>
+        </table>
+      </div>
+    </section>
+    <section aria-labelledby="network-chart-title">
+      <div class="table-tools"><h2 id="network-chart-title">Traffic history</h2><label>Interface <select id="network-interface"><option value="all">All interfaces (sum)</option></select></label></div>
+      <p class="chart-note">Receive and transmit rates over the last 60 seconds in this browser. Missing readings leave gaps.</p>
+      <div id="network-chart"></div>
+    </section>
+  </div>
+
+  <div id="temperature-view" role="tabpanel" aria-labelledby="tab-temperature" tabindex="0" hidden>
+    <div class="resource-meta"><span id="temperature-updated">Waiting for data…</span><span>Live host data</span></div>
+    <p id="temperature-notice" class="notice" role="status" hidden></p>
+    <section>
+      <div class="table-tools">
+        <h2>Temperature sensors</h2>
+        <label class="sr-only" for="temperature-filter">Filter temperature sensors</label>
+        <input id="temperature-filter" type="search" placeholder="Filter temperature sensors…">
+        <span id="temperature-count"></span>
+      </div>
+      <div class="table-scroll">
+        <table class="resource-table"><caption class="sr-only">Temperature sensors</caption>
+          <thead id="temperature-head"></thead><tbody id="temperature-rows"></tbody>
+        </table>
+      </div>
+    </section>
+    <section aria-labelledby="temperature-chart-title">
+      <div class="table-tools"><h2 id="temperature-chart-title">Sensor temperatures</h2></div>
+      <p class="chart-note">The hottest sensors, up to twelve. Markers show reported critical thresholds; missing thresholds are not inferred.</p>
+      <div id="temperature-chart"></div>
+    </section>
+  </div>
+
+  <script>
+    'use strict';
+
+    let data = null;
+    let paused = false;
+    let selected = null;
+    let initialized = false;
+    let resourceData = null;
+    let active = 'process';
+    const monitors = {
+      process: ['Processes', 'CPU and resident memory · 100% CPU = one core'],
+      disk: ['Disks', 'Filesystem capacity, used space and available space'],
+      service: ['Services', 'Loaded system services, including inactive and failed units'],
+      network: ['Network', 'Interface state, traffic rates, totals, errors and drops'],
+      temperature: ['Temperature', 'Hardware sensors and their critical thresholds'],
+    };
+
+    /* Find a dashboard element by its ID. */
+    const $ = id => document.getElementById(id);
+
+    /* Give each process identity a stable color. */
+    function color(id) {
+      let hash = 0;
+      for (const character of id) {
+        hash = (Math.imul(hash, 31) + character.charCodeAt(0)) | 0;
+      }
+      return `hsl(${(hash >>> 0) % 360} 75% 65%)`;
+    }
+
+    /* Format a metric for display, including missing values. */
+    function format(number) {
+      return number === null || number === undefined ? 'N/A' : number.toFixed(1);
+    }
+
+    /* Read a process metric and convert resident memory to MiB. */
+    function value(process, key) {
+      return process?.[key] == null ? null : process[key] / (key === 'rss' ? 1048576 : 1);
+    }
+
+    /* Rank processes by a metric, breaking ties by process identity. */
+    function ranked(rows, key) {
+      return [...rows].sort((a, b) =>
+        (b[key] ?? -1) - (a[key] ?? -1)
+        || a.pid - b.pid
+        || a.id.localeCompare(b.id)
+      );
+    }
+
+    /* Draw process history with gaps where metric values are missing. */
+    function graph(canvas, series, frames, key, windowMs, latest) {
+      const ratio = window.devicePixelRatio || 1;
+      const width = canvas.clientWidth;
+      const height = 200;
+      canvas.width = width * ratio;
+      canvas.height = height * ratio;
+
+      const context = canvas.getContext('2d');
+      context.scale(ratio, ratio);
+      context.font = '12px system-ui';
+
+      const end = Math.max(windowMs, latest);
+      const start = end - windowMs;
+      let maximum = 1;
+      for (const frame of frames) {
+        for (const process of frame.processes) {
+          if (series.some(item => item.id === process.id)) {
+            maximum = Math.max(maximum, value(process, key) ?? 0);
+          }
+        }
+      }
+
+      context.strokeStyle = '#334155';
+      context.fillStyle = '#94a3b8';
+      context.fillText(`${format(maximum)} ${key === 'rss' ? 'MiB' : '%'}`, 0, 12);
+      context.beginPath();
+      context.moveTo(45, 20);
+      context.lineTo(45, 175);
+      context.lineTo(width - 8, 175);
+      context.stroke();
+      context.fillText(`${(start / 1000).toFixed(1)}s`, 45, 195);
+      context.fillText(`${(end / 1000).toFixed(1)}s`, Math.max(45, width - 65), 195);
+
+      for (const process of series) {
+        context.strokeStyle = color(process.id);
+        context.lineWidth = 2;
+        context.beginPath();
+        let hasPreviousPoint = false;
+
+        for (const frame of frames) {
+          if (frame.elapsed_ms < start) continue;
+
+          const metric = value(frame.processes.find(row => row.id === process.id), key);
+          if (metric === null) {
+            hasPreviousPoint = false;
+            continue;
+          }
+
+          const x = 45 + (frame.elapsed_ms - start) / windowMs * (width - 53);
+          const y = 175 - metric / maximum * 150;
+          if (hasPreviousPoint) {
+            context.lineTo(x, y);
+          } else {
+            context.moveTo(x, y);
+          }
+          hasPreviousPoint = true;
+          context.fillStyle = color(process.id);
+          context.fillRect(x - 1, y - 1, 2, 2);
+        }
+        context.stroke();
+      }
+    }
+
+    /* Refresh the controls, process table, history graph, and selected details. */
+    function renderProcess() {
+      if (!data || paused) return;
+      const { snapshot, history, status } = data;
+      if (!snapshot) return;
+
+      if (!initialized) {
+        $('sort').value = status.memory ? 'rss' : 'cpu';
+        const top = String(status.top);
+        $('top').value = ['0', '5', '10'].includes(top) ? top : 'custom';
+        $('custom').value = status.top || 20;
+        initialized = true;
+      }
+
+      $('custom').hidden = $('top').value !== 'custom';
+      $('summary').textContent = `${snapshot.processes.length} processes`
+        + ` · history ${(status.history_ms / 1000).toFixed(1)}s`
+        + ` · skipped ${snapshot.inaccessible}`
+        + (status.evicted ? ' · history trimmed' : '')
+        + (status.replay ? ' · replay' : '')
+        + (status.finished ? ' complete' : '');
+
+      const rows = ranked(snapshot.processes, $('sort').value);
+      const count = $('top').value === 'custom'
+        ? Math.max(1, Number($('custom').value) || 1)
+        : Number($('top').value);
+
+      $('rows').replaceChildren();
+      for (const process of (count ? rows.slice(0, count) : rows)) {
+        const row = document.createElement('tr');
+        row.classList.toggle('selected', process.id === selected?.id);
+        row.tabIndex = 0;
+
+        const cells = [
+          process.pid,
+          process.label || process.exe,
+          format(process.cpu),
+          format(process.memory),
+          format(value(process, 'rss')),
+        ];
+        for (const text of cells) {
+          const cell = document.createElement('td');
+          cell.textContent = text;
+          row.append(cell);
+        }
+
+        const choose = () => {
+          selected = process;
+          render();
+        };
+        row.onclick = choose;
+        row.onkeydown = event => {
+          if (event.key === 'Enter') choose();
+        };
+        $('rows').append(row);
+      }
+
+      const windowMs = status.graph_window_ms || 60000;
+      const frames = history.filter(frame => frame.elapsed_ms >= snapshot.elapsed_ms - windowMs);
+      const key = $('sort').value;
+      const series = ranked(snapshot.processes, key)
+        .filter(process => process[key] !== null)
+        .slice(0, 5);
+
+      $('history-title').textContent = key === 'rss'
+        ? 'Top 5 memory history · RSS MiB'
+        : 'Top 5 CPU history · % of one core';
+      graph($('history'), series, frames, key, windowMs, snapshot.elapsed_ms);
+
+      $('history-legend').replaceChildren();
+      for (const process of series) {
+        const item = document.createElement('span');
+        item.style.color = color(process.id);
+        item.textContent = `${process.pid} ${process.label || process.exe}`;
+        $('history-legend').append(item);
+      }
+
+      if (selected) {
+        const live = snapshot.processes.find(process => process.id === selected.id);
+        $('detail').textContent = `${selected.label || selected.exe} · ${selected.id}`
+          + `${live ? '' : ' · exited'}\n${selected.exe}`;
+      }
+    }
+
+    const columns = {
+      disk: [['mount', 'Mount', 'text'], ['filesystem', 'Filesystem', 'text'], ['total_bytes', 'Total', 'bytes'], ['used_bytes', 'Used', 'bytes'], ['available_bytes', 'Available', 'bytes'], ['used_percent', 'Used %', 'percent']],
+      service: [['unit', 'Service', 'text'], ['active', 'State', 'state'], ['sub', 'Substate', 'text'], ['load', 'Load', 'text'], ['description', 'Description', 'text']],
+      network: [['interface', 'Interface', 'text'], ['state', 'State', 'state'], ['rx_bytes_per_sec', 'Receive / s', 'rate'], ['tx_bytes_per_sec', 'Send / s', 'rate'], ['rx_bytes', 'Received', 'bytes'], ['tx_bytes', 'Sent', 'bytes'], ['errors', 'Errors', 'number'], ['drops', 'Drops', 'number']],
+      temperature: [['sensor', 'Sensor', 'text'], ['celsius', 'Temperature', 'celsius'], ['critical_celsius', 'Critical', 'celsius'], ['headroom', 'To critical', 'celsius'], ['status', 'Status', 'state']],
+    };
+    const sorts = {
+      disk: { key: 'used_percent', direction: -1 }, service: { key: 'unit', direction: 1 },
+      network: { key: 'rx_bytes_per_sec', direction: -1 }, temperature: { key: 'celsius', direction: -1 },
+    };
+    let networkHistory = [];
+    const stateColors = { active: '#34d399', failed: '#fb7185', inactive: '#64748b', activating: '#fbbf24', deactivating: '#a78bfa', other: '#38bdf8' };
+
+    /* Create ordinary DOM elements without interpreting host data as markup. */
+    function element(tag, text, className) {
+      const node = document.createElement(tag);
+      if (text !== undefined) node.textContent = text;
+      if (className) node.className = className;
+      return node;
+    }
+
+    /* Format bytes with binary units, retaining signed free-space values. */
+    function bytes(number) {
+      if (!Number.isFinite(number)) return 'N/A';
+      const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'];
+      let index = 0;
+      while (Math.abs(number) >= 1024 && index < units.length - 1) { number /= 1024; index++; }
+      return `${number.toLocaleString(undefined, { maximumFractionDigits: 1 })} ${units[index]}`;
+    }
+
+    /* Display unavailable values consistently without suppressing real zeroes. */
+    function metric(value, type) {
+      if (value === null || value === undefined) return 'N/A';
+      if (type === 'bytes') return bytes(value);
+      if (type === 'rate') return Number.isFinite(value) ? bytes(value) + '/s' : 'N/A';
+      if (type === 'percent') return format(value) + '%';
+      if (type === 'celsius') return format(value) + ' °C';
+      if (type === 'number') return value.toLocaleString();
+      return String(value);
+    }
+
+    /* Choose badge colors only from known states. */
+    function badgeClass(state) {
+      if (['active', 'up', 'normal'].includes(state)) return 'good';
+      if (['failed', 'critical'].includes(state)) return 'bad';
+      if (['activating', 'deactivating'].includes(state)) return 'warn';
+      return '';
+    }
+
+    /* Build persistent sortable headings and filter controls for resource tables. */
+    function setupResourceTables() {
+      for (const [key, fields] of Object.entries(columns)) {
+        const heading = element('tr');
+        for (const [field, title, type] of fields) {
+          const cell = element('th');
+          cell.scope = 'col';
+          cell.dataset.field = field;
+          if (!['text', 'state'].includes(type)) cell.className = 'numeric';
+          const button = element('button', title);
+          button.type = 'button';
+          button.onclick = () => {
+            const state = sorts[key];
+            sorts[key] = { key: field, direction: state.key === field ? -state.direction : (['text', 'state'].includes(type) ? 1 : -1) };
+            render();
+          };
+          cell.append(button);
+          heading.append(cell);
+        }
+        $(key + '-head').append(heading);
+        $(key + '-filter').oninput = render;
+      }
+    }
+
+    /* Filter and sort typed rows, always keeping unavailable measurements last. */
+    function resourceRows(key, rows) {
+      const filter = $(key + '-filter').value.trim().toLowerCase();
+      const state = sorts[key];
+      return rows.map(row => key === 'temperature' ? {
+        ...row, headroom: Number.isFinite(row.celsius) && Number.isFinite(row.critical_celsius) ? row.critical_celsius - row.celsius : null,
+      } : row).filter(row => Object.values(row).some(value => String(value ?? '').toLowerCase().includes(filter)))
+        .sort((a, b) => {
+          const left = a[state.key], right = b[state.key];
+          if (left == null) return right == null ? 0 : 1;
+          if (right == null) return -1;
+          return state.direction * (typeof left === 'number' ? left - right : String(left).localeCompare(String(right)));
+        });
+    }
+
+    /* Fill a semantic table, preserving headings and keyboard focus during refresh. */
+    function resourceTable(key, rows, total) {
+      for (const cell of $(key + '-head').querySelectorAll('th')) {
+        cell.setAttribute('aria-sort', cell.dataset.field === sorts[key].key ? (sorts[key].direction === 1 ? 'ascending' : 'descending') : 'none');
+      }
+      $(key + '-count').textContent = `${rows.length} of ${total}`;
+      const body = $(key + '-rows');
+      body.replaceChildren();
+      for (const row of rows) {
+        const tr = element('tr');
+        for (const [field, , type] of columns[key]) {
+          const cell = element('td');
+          const text = metric(row[field], type);
+          if (type === 'state') cell.append(element('span', text, 'status ' + badgeClass(row[field])));
+          else cell.textContent = text;
+          if (!['text', 'state'].includes(type)) cell.className = 'numeric';
+          tr.append(cell);
+        }
+        body.append(tr);
+      }
+      if (!rows.length) {
+        const cell = element('td', total ? 'No rows match this filter.' : 'No measurements available.');
+        cell.colSpan = columns[key].length;
+        const row = element('tr'); row.append(cell); body.append(row);
+      }
+    }
+
+    /* Render a labeled bar with an optional critical threshold marker. */
+    function bar(container, label, value, text, low, high, tint, threshold = null) {
+      const row = element('div', undefined, 'bar-row');
+      const name = element('span', label, 'bar-label'); name.title = label;
+      const track = element('div', undefined, 'meter');
+      const position = n => Math.max(0, Math.min(100, (n - low) / (high - low) * 100));
+      const fill = element('span', undefined, 'meter-fill');
+      const zero = position(0), end = position(value);
+      fill.style.left = Math.min(zero, end) + '%';
+      fill.style.width = Math.abs(end - zero) + '%';
+      fill.style.background = tint;
+      track.append(fill);
+      if (Number.isFinite(threshold)) {
+        const marker = element('span', undefined, 'threshold');
+        marker.style.left = position(threshold) + '%';
+        marker.title = `Critical: ${format(threshold)} °C`;
+        track.append(marker);
+      }
+      row.append(name, track, element('span', text, 'bar-value'));
+      container.append(row);
+    }
+
+    /* Compare filesystem utilization on a fixed percentage scale. */
+    function diskChart(rows) {
+      const plot = $('disk-chart'); plot.replaceChildren();
+      const measured = rows.filter(row => Number.isFinite(row.used_percent)).sort((a, b) => b.used_percent - a.used_percent).slice(0, 8);
+      for (const row of measured) bar(plot, row.mount, row.used_percent, metric(row.used_percent, 'percent'), 0, 100,
+        row.used_percent >= 90 ? '#fb7185' : row.used_percent >= 75 ? '#fbbf24' : '#38bdf8');
+      if (!measured.length) plot.append(element('p', 'No filesystem measurements to plot.'));
+    }
+
+    /* Show the distribution of actual service states, including a separate failed group. */
+    function serviceChart(rows) {
+      const plot = $('service-chart'); plot.replaceChildren();
+      if (!rows.length) { plot.append(element('p', 'No service states to plot.')); return; }
+      const counts = Object.fromEntries(Object.keys(stateColors).map(key => [key, 0]));
+      for (const row of rows) counts[Object.hasOwn(counts, row.active) ? row.active : 'other']++;
+      const stack = element('div', undefined, 'stacked');
+      stack.setAttribute('role', 'img');
+      stack.setAttribute('aria-label', Object.entries(counts).map(([state, count]) => `${state}: ${count}`).join(', '));
+      const legend = element('div', undefined, 'chart-legend');
+      for (const [state, count] of Object.entries(counts)) {
+        if (!count) continue;
+        const segment = element('div', undefined, 'stacked-segment');
+        segment.style.width = (count / rows.length * 100) + '%'; segment.style.background = stateColors[state];
+        segment.title = `${state}: ${count}`; stack.append(segment);
+        const item = element('span');
+        const dot = element('span', undefined, 'legend-dot'); dot.style.background = stateColors[state];
+        item.append(dot, document.createTextNode(`${state} · ${count}`)); legend.append(item);
+      }
+      plot.append(stack, legend);
+    }
+
+    /* Compare signed sensor readings against the thresholds supplied by the host. */
+    function temperatureChart(rows) {
+      const plot = $('temperature-chart'); plot.replaceChildren();
+      const measured = rows.filter(row => Number.isFinite(row.celsius)).sort((a, b) => b.celsius - a.celsius).slice(0, 12);
+      if (!measured.length) { plot.append(element('p', 'No sensor measurements to plot.')); return; }
+      const low = Math.min(0, ...measured.flatMap(row => [row.celsius, row.critical_celsius ?? 0]));
+      const high = Math.max(1, ...measured.flatMap(row => [row.celsius, row.critical_celsius ?? 0]));
+      for (const row of measured) bar(plot, row.sensor, row.celsius, metric(row.celsius, 'celsius'), low, high,
+        row.status === 'critical' ? '#fb7185' : '#38bdf8', row.critical_celsius);
+      plot.append(element('p', `Shared scale: ${format(low)} to ${format(high)} °C. Pink markers indicate critical thresholds.`, 'chart-note'));
+    }
+
+    /* Retain a bounded history of distinct network samples, even while another tab is selected. */
+    function rememberNetwork(publication) {
+      const time = publication.timestamp_ms;
+      const rows = publication.monitors?.network?.rows;
+      if (!Number.isFinite(time) || !Array.isArray(rows)) return;
+      if (networkHistory.at(-1)?.time === time) return;
+      if (time < (networkHistory.at(-1)?.time ?? 0)) networkHistory = [];
+      networkHistory.push({ time, rows, interval: Math.max(1000, publication.interval_ms || 1000) });
+      networkHistory = networkHistory.filter(frame => frame.time >= time - 60000).slice(-120);
+    }
+
+    /* Create an SVG element with explicit attributes and safe text. */
+    function svgElement(tag, attributes, text) {
+      const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
+      for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, String(value));
+      if (text !== undefined) node.textContent = text;
+      return node;
+    }
+
+    /* Plot receive/send rates for the chosen interface, leaving unknown values as gaps. */
+    function networkChart(allRows) {
+      const select = $('network-interface');
+      const selectedName = select.value;
+      const names = allRows.map(row => row.interface).sort();
+      if (JSON.stringify(names) !== select.dataset.names) {
+        select.replaceChildren(new Option('All interfaces (sum)', 'all'));
+        for (const name of names) select.append(new Option(name, name));
+        select.value = names.includes(selectedName) ? selectedName : 'all';
+        select.dataset.names = JSON.stringify(names);
+      }
+      const plot = $('network-chart'); plot.replaceChildren();
+      const series = [['rx_bytes_per_sec', 'Receive', '#38bdf8'], ['tx_bytes_per_sec', 'Send', '#a78bfa']];
+      const points = networkHistory.map(frame => {
+        const rows = frame.rows.filter(row => select.value === 'all' || row.interface === select.value);
+        const point = { time: frame.time, interval: frame.interval };
+        for (const [key] of series) point[key] = rows.length && rows.every(row => Number.isFinite(row[key])) ? rows.reduce((sum, row) => sum + row[key], 0) : null;
+        return point;
+      });
+      const measured = points.flatMap(point => series.map(([key]) => point[key])).filter(Number.isFinite);
+      if (!measured.length) { plot.append(element('p', 'Waiting for two samples to calculate traffic rates.')); return; }
+      const maximum = Math.max(1, ...measured);
+      const end = networkHistory.at(-1).time, start = end - 60000;
+      const svg = svgElement('svg', { viewBox: '0 0 960 250', class: 'network-plot', role: 'img', 'aria-label': `Receive and send traffic for ${select.value === 'all' ? 'all interfaces (sum)' : select.value} over the last 60 seconds` });
+      for (let index = 0; index <= 4; index++) {
+        const y = 20 + index * 45;
+        svg.append(svgElement('line', { x1: 100, x2: 940, y1: y, y2: y, stroke: '#293951' }));
+        svg.append(svgElement('text', { x: 90, y: y + 4, fill: '#94a3b8', 'text-anchor': 'end', 'font-size': 12 }, bytes(maximum * (1 - index / 4)) + '/s'));
+      }
+      for (const seconds of [60, 45, 30, 15, 0]) svg.append(svgElement('text', { x: 100 + (60 - seconds) * 14, y: 230, fill: '#94a3b8', 'text-anchor': 'middle', 'font-size': 12 }, seconds ? `−${seconds}s` : 'now'));
+      const legend = element('div', undefined, 'chart-legend');
+      for (const [key, label, tint] of series) {
+        let path = '', previousTime = null;
+        for (const point of points) {
+          if (!Number.isFinite(point[key])) { previousTime = null; continue; }
+          const x = 100 + (point.time - start) / 60000 * 840;
+          const y = 200 - point[key] / maximum * 180;
+          const linked = previousTime !== null && point.time - previousTime <= Math.max(3000, point.interval * 2.5);
+          path += `${linked ? 'L' : 'M'}${x.toFixed(2)},${y.toFixed(2)} `;
+          svg.append(svgElement('circle', { cx: x, cy: y, r: 2, fill: tint }));
+          previousTime = point.time;
+        }
+        svg.append(svgElement('path', { d: path, fill: 'none', stroke: tint, 'stroke-width': 2 }));
+        const item = element('span'); const dot = element('span', undefined, 'legend-dot'); dot.style.background = tint;
+        item.append(dot, document.createTextNode(`${label} · ${metric(points.at(-1)?.[key], 'rate')}`)); legend.append(item);
+      }
+      plot.append(svg, legend);
+    }
+
+    /* Render the selected monitor's table and its matching visualization. */
+    function render() {
+      if (paused) return;
+      if (active === 'process') { renderProcess(); return; }
+      const view = resourceData?.monitors?.[active];
+      if (!view) return;
+      const allRows = Array.isArray(view.rows) ? view.rows : [];
+      const rows = resourceRows(active, allRows);
+      resourceTable(active, rows, allRows.length);
+      $(active + '-notice').textContent = view.message || '';
+      $(active + '-notice').hidden = !view.message;
+      $(active + '-updated').textContent = `Sample ${view.samples} · Updated ${new Date(resourceData.timestamp_ms).toLocaleTimeString()}`;
+      if (active === 'disk') diskChart(rows);
+      else if (active === 'service') serviceChart(rows);
+      else if (active === 'network') networkChart(allRows);
+      else temperatureChart(rows);
+    }
+
+    /* Select a tab from the URL, preserving browser back/forward navigation. */
+    function selectMonitor() {
+      const name = location.hash.slice(1);
+      active = Object.hasOwn(monitors, name) ? name : 'process';
+      paused = false;
+      $('pause').textContent = 'Pause display';
+      for (const key of Object.keys(monitors)) {
+        const chosen = key === active;
+        $('tab-' + key).setAttribute('aria-selected', String(chosen));
+        $('tab-' + key).tabIndex = chosen ? 0 : -1;
+        $(key + '-view').hidden = !chosen;
+      }
+      $('view-heading').hidden = false;
+      $('view-title').textContent = monitors[active][0];
+      $('view-description').textContent = monitors[active][1];
+      render();
+    }
+
+    /* Support keyboard movement across the horizontal tabs. */
+    for (const [index, key] of Object.keys(monitors).entries()) {
+      $('tab-' + key).onkeydown = event => {
+        const keys = Object.keys(monitors);
+        let next;
+        if (event.key === 'ArrowRight') next = (index + 1) % keys.length;
+        else if (event.key === 'ArrowLeft') next = (index + keys.length - 1) % keys.length;
+        else if (event.key === 'Home') next = 0;
+        else if (event.key === 'End') next = keys.length - 1;
+        else return;
+        event.preventDefault();
+        $('tab-' + keys[next]).focus();
+        location.hash = keys[next];
+      };
+    }
+
+    /* Fetch fresh data from a dashboard API endpoint. */
+    async function get(path) {
+      const response = await fetch('/api/v1/' + path, { cache: 'no-store' });
+      if (!response.ok) throw Error(response.status);
+      return response.json();
+    }
+
+    /* Poll sequentially to avoid overlapping requests and retry after failures. */
+    async function poll() {
+      try {
+        const [resources, processes] = await Promise.all([
+          get('resources'), active === 'process' ? get('view') : Promise.resolve(null),
+        ]);
+        resourceData = resources;
+        rememberNetwork(resources);
+        if (processes) data = processes;
+        $('connection').textContent = active === 'process' && data?.status.finished
+          ? 'Replay complete' : 'Connected';
+        render();
+      } catch (error) {
+        $('connection').textContent = 'Disconnected · retrying…';
+      }
+      setTimeout(poll, 1000);
+    }
+
+    for (const id of ['sort', 'top', 'custom']) {
+      $(id).onchange = render;
+    }
+
+    $('pause').onclick = () => {
+      paused = !paused;
+      $('pause').textContent = paused ? 'Resume display' : 'Pause display';
+      render();
+    };
+
+    setupResourceTables();
+    $('network-interface').onchange = render;
+    window.addEventListener('resize', render);
+    window.addEventListener('hashchange', selectMonitor);
+    selectMonitor();
+    poll();
+  </script>
+</body>
+</html>

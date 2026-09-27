@@ -1,0 +1,41 @@
+/* POSIX terminal and signal bindings with narrowly scoped unsafe calls. */
+public module system_monitor {
+  using std;
+
+  /* Checks whether a file descriptor is attached to a terminal. */
+  extern "C" function pm_isatty(fd: i32) i32 as "isatty";
+  /* Copies native terminal settings into an aligned buffer. */
+  extern "C" function pm_tcgetattr(fd: i32, out: raw_ptr<u8>) i32 as "tcgetattr";
+  /* Applies previously captured or modified terminal settings. */
+  extern "C" function pm_tcsetattr(fd: i32, action: i32, data: raw_ptr<u8>) i32 as "tcsetattr";
+  /* Disables native line editing for interactive key input. */
+  extern "C" function pm_cfmakeraw(data: raw_ptr<u8>) void as "cfmakeraw";
+  /* Queries native terminal geometry through the platform request code. */
+  extern "C" function pm_ioctl(fd: i32, request: u64, data: raw_ptr<u8>) i32 as "ioctl";
+  /* Reads bytes from a POSIX descriptor. */
+  extern "C" function pm_read(fd: i32, data: raw_ptr<u8>, count: u64) i64 as "read";
+  /* Writes bytes to a POSIX descriptor. */
+  extern "C" function pm_write(fd: i32, data: raw_ptr<u8>, count: u64) i64 as "write";
+  /* Installs a signal callback using the stdlib-compatible native declaration. */
+  extern "C" function pm_signal(sig: i32, callback: i64) i64 as "signal";
+  var stop_flag: i32 = 0;
+  /* Records shutdown intent without allocating or performing terminal operations. */
+  function on_signal(sig: i32) void {
+    unsafe { _atomic_store_i32(_address_of<i32>(stop_flag), 1); };
+  }
+  /* Reads the signal-safe shutdown flag. */
+  function stopping() bool {
+    return unsafe { _atomic_load_i32(_address_of<i32>(stop_flag)); } != 0;
+  }
+  /* Writes terminal output while handling partial descriptor writes. */
+  function output(s: ref String) void {
+    var offset: i64 = 0;
+    while (offset < s.length()) {
+      var n = unsafe { pm_write(1, _ptr_offset(s.bytes(), offset), _convert<u64>(s.length() - offset)); };
+      if (n <= 0) {
+        break;
+      }
+      offset = offset + n;
+    }
+  }
+}

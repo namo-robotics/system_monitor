@@ -1,0 +1,448 @@
+/* Exercises native binaries, recordings, packaged resources, and HTTP hosting. */
+using std;
+using acceptance;
+
+/* Runs the native acceptance suite. */
+function main(argc: i32, argv: raw_ptr<raw_ptr<u8>>) i32 {
+  return acceptance.entry(argc, argv);
+}
+
+/* Owns helpers and process-level acceptance cases. */
+public module acceptance {
+  using std;
+  var harness: String = String("");
+  /* Bounds child execution even if the application stops responding. */
+  extern "C" function alarm(seconds: u32) u32;
+  /* Runs acceptance checks or supplies their CPU and memory workload. */
+  public function entry(argc: i32, argv: raw_ptr<raw_ptr<u8>>) i32 {
+    var a = make_heap_allocator();
+    harness = from_c_str(a, unsafe { _load<raw_ptr<u8>>(argv, 0); });
+    try {
+      if (argc > 1) {
+        var arg = from_c_str(a, unsafe { _load<raw_ptr<u8>>(argv, 1); });
+        if (arg.equals_literal("--exec") and argc > 2) {
+          var program = from_c_str(a, unsafe { _load<raw_ptr<u8>>(argv, 2); });
+          var cmd = std.process.Command(a, program);
+          for (var i: i64 = 3; i < _convert<i64>(argc); i = i + 1) {
+            cmd.add_arg(from_c_str(a, unsafe { _load<raw_ptr<u8>>(argv, i); }));
+          }
+          unsafe { alarm(15u32); };
+          std.process.exec(cmd);
+          return 127;
+        }
+        if (arg.equals_literal("--workload")) {
+          /* Leave headroom for the kernel's approximate resident-page counters. */
+          var data = ContiguousBuffer<u8>(a, 41943040);
+          data.fill(1u8);
+          while (true) {
+            for (var i: i64 = 0; i < data.size(); i = i + 4096) {
+              data.set(i, data.get(i) + 1u8);
+            }
+          }
+        }
+      }
+      var env = std.env.Env(a);
+      var binary = String("build/system_monitor");
+      var html = String("assets/dashboard.html");
+      match env.get("PM_BIN") {
+        Option.Some(value) => {
+          binary = value.clone(a);
+          binary.append("");
+        },
+        Option.None => {}
+      };
+      match env.get("PM_DASHBOARD") {
+        Option.Some(value) => {
+          html = value.clone(a);
+          html.append("");
+        },
+        Option.None => {}
+      };
+      var temp = Temp(a);
+      if (argc == 1) {
+        invalid_options(a, binary);
+        resource_views(a, binary);
+        terminal_tabs(a, binary);
+        recording(a, binary, temp.path);
+        terminal(a, binary, temp.path, false, false);
+        terminal(a, binary, temp.path, true, false);
+      }
+      web(a, binary, html, temp.path);
+      println("PASS native acceptance: CLI, recordings, terminal, package resources, HTTP");
+      return 0;
+    } catch (e: ref IError) {
+      eprintln(e.message());
+      return 1;
+    }
+  }
+
+  /* Checks direct views and rejects conflicting process-only options. */
+  function resource_views(a: ref HeapAllocator, binary: ref String) void throws IError {
+    var names = String("disk service network temperature");
+    var views = names.split_whitespace(a);
+    for (var i: i64 = 0; i < views.size(); i = i + 1) {
+      var args = String("--monitor ");
+      args.append(views.get(i));
+      args.append(" --samples 2 --interval .1");
+      var result = run(a, binary, args, 0);
+      var title = String("SYSTEM MONITOR / ");
+      title.append(views.get(i));
+      check(result.stdout().contains(title), "resource view title missing");
+      check(result.stdout().contains("sample 2"), "resource sample limit missing");
+      check(not result.stdout().contains("\x1b"), "redirected resource view has ANSI escapes");
+    }
+    run(a, binary, String("--monitor invalid"), 1);
+    run(a, binary, String("--monitor disk --record unused.jsonl"), 1);
+    run(a, binary, String("--monitor network --replay absent.jsonl"), 1);
+  }
+
+  /* Creates a unique temporary directory. */
+  extern "C" function mkdtemp(path: raw_ptr<u8>) raw_ptr<u8>;
+  /* Sends a signal to a child during cleanup. */
+  extern "C" function kill(pid: i32, signal: i32) i32;
+  /* Reaps a child during cleanup. */
+  extern "C" function waitpid(pid: i32, status: raw_ptr<i32>, options: i32) i32;
+
+  /* Checks an invariant with an explanatory failure. */
+  function check(value: bool, message: static_ptr<u8>) void throws IError {
+    std.test.assert(value, message);
+  }
+  /* Sleeps without spinning while a child does work. */
+  function sleep(ms: i64) void {
+    std.time.sleep(std.time.create_duration_millis(ms));
+  }
+  /* Builds arguments from test literals without invoking a shell. */
+  function command(a: ref HeapAllocator, binary: const ref String, args: const ref String) std.process.Command throws IError {
+    var cmd = std.process.Command(a, binary);
+    var parts = args.split(a, b' ');
+    for (var i: i64 = 0; i < parts.size(); i = i + 1) {
+      if (not parts.get(i).is_empty()) {
+        cmd.add_arg(parts.get(i));
+      }
+    }
+    return cmd;
+  }
+  /* Captures a command and checks its status. */
+  function run(a: ref HeapAllocator, binary: const ref String, args: String, code: i32) std.process.Output throws IError {
+    var cmd = std.process.Command(a, harness);
+    cmd.add_arg("--exec");
+    cmd.add_arg(binary);
+    var parts = args.split(a, b' ');
+    for (var i: i64 = 0; i < parts.size(); i = i + 1) {
+      if (not parts.get(i).is_empty()) {
+        cmd.add_arg(parts.get(i));
+      }
+    }
+    var result = cmd.output();
+    if (result.status() != code) {
+      eprintln(args);
+      eprintln(result.stderr());
+    }
+    check(result.status() == code, "unexpected command status");
+    return result;
+  }
+  /* Removes temporary recordings even when a check throws. */
+  class Temp {
+    var path: String;
+    init(a: ref HeapAllocator) throws IError {
+      this.path = String("/tmp/process-monitor-test-XXXXXX");
+      check(unsafe { mkdtemp(this.path.c_str()); } != null, "mkdtemp failed");
+    }
+    deinit() {
+      var a = make_heap_allocator();
+      var cmd = std.process.Command(a, "rm");
+      cmd.add_arg("-rf");
+      cmd.add_arg(this.path);
+      try {
+        cmd.status();
+      } catch (e: ref IError) {}
+    }
+  }
+  /* Owns a child and prevents failed assertions from leaving it running. */
+  class Running {
+    var child: std.process.Child;
+    init(cmd: ref std.process.Command) throws IError {
+      this.child = cmd.start();
+    }
+    deinit() {
+      var pid = this.child.id();
+      if (pid > 0) {
+        unsafe { kill(pid, 9); waitpid(pid, null, 0); };
+      }
+    }
+    /* Requires graceful shutdown within a bounded interval. */
+    method stop() void throws IError {
+      this.child.kill(15);
+      for (var i: i64 = 0; i < 160; i = i + 1) {
+        match this.child.try_wait() {
+          Option.Some(code) => {
+            check(code == 0, "child did not shut down cleanly");
+            return;
+          },
+          Option.None => {}
+        };
+        sleep(50);
+      }
+      throw Error(1, "child shutdown timed out");
+    }
+  }
+  /* Rejects malformed options and checks informational commands. */
+  function invalid_options(a: ref HeapAllocator, binary: ref String) void throws IError {
+    var cases = String("--top 0|--sort network|--interval nan|--interval 0|--history -2|--memory-limit 0|--samples -1|--top|--ui invalid|--unknown x|--record x --replay y").split(a, b'|');
+    for (var i: i64 = 0; i < cases.size(); i = i + 1) {
+      run(a, binary, cases.get(i).clone(a), 1);
+    }
+    var help = run(a, binary, String("--help"), 0);
+    check(help.stdout().contains("Usage:"), "help output");
+    var version = run(a, binary, String("--version"), 0);
+    check(version.stdout().starts_with("system_monitor "), "version output");
+  }
+  /* Checks collection under load, replay, overwrite refusal, and corrupt input. */
+  function recording(a: ref HeapAllocator, binary: ref String, directory: ref String) void throws IError {
+    var cmd = std.process.Command(a, "build/acceptance");
+    cmd.add_arg("--workload");
+    cmd.set_stdout(std.process.Stdio.Null);
+    var worker = Running(cmd);
+    sleep(150);
+    var path = directory.clone(a);
+    path.append("/session.jsonl");
+    var args = String("--samples 4 --interval .15 --top 1 --record ");
+    args.append(path);
+    var result = run(a, binary, args, 0);
+    check(not result.stdout().contains("\x1b"), "redirected output contains styling");
+    var text = std.io.read_to_string(a, path);
+    var lines = text.split(a, b'\n');
+    check(lines.size() == 6, "recording frame count");
+    var header = parse_json(a, lines.get(0));
+    check(header.get("type").as_string().equals_literal("session"), "recording header");
+    var seen: bool = false;
+    var busy: bool = false;
+    for (var i: i64 = 1; i < 5; i = i + 1) {
+      var frame = parse_json(a, lines.get(i));
+      var rows: ref Json = frame.get("processes");
+      check(rows.len() > 1, "top-N must not filter recordings");
+      for (var j: i64 = 0; j < rows.len(); j = j + 1) {
+        var row: ref Json = rows.at(j);
+        if (row.get("pid").as_i64() == _convert<i64>(worker.child.id())) {
+          seen = true;
+          check(row.get("rss").as_i64() >= 33554432, "workload memory missing");
+          check(not row.get("memory").is_null(), "memory percentage missing");
+          if (i == 1) {
+            check(row.get("cpu").is_null(), "first CPU sample must be unknown");
+          }
+          if (not row.get("cpu").is_null() and row.get("cpu").as_f64() > 5.0) {
+            busy = true;
+          }
+        }
+      }
+    }
+    check(seen and busy, "CPU workload missing from recordings");
+    args = String("--replay ");
+    args.append(path);
+    args.append(" --interval .1");
+    run(a, binary, args, 0);
+    args = String("--record ");
+    args.append(path);
+    args.append(" --samples 1");
+    run(a, binary, args, 1);
+    var damaged = directory.clone(a);
+    damaged.append("/damaged.jsonl");
+    var incomplete = text.clone(a);
+    incomplete.append("{\"version\":");
+    std.io.write_string(damaged, incomplete);
+    args = String("--replay ");
+    args.append(damaged);
+    args.append(" --interval .1");
+    run(a, binary, args.clone(a), 0);
+    text.append("broken\n");
+    std.io.write_string(damaged, text);
+    run(a, binary, args, 1);
+  }
+  /* Fetches one local HTTP response with a bounded network timeout. */
+  function request(a: ref HeapAllocator, base: ref String, path: static_ptr<u8>, method: static_ptr<u8>, code: static_ptr<u8>) String throws IError {
+    return request_path(a, base, String(path), method, code);
+  }
+  /* Fetches an endpoint whose path includes a recorded identity. */
+  function request_path(a: ref HeapAllocator, base: ref String, path: String, method: static_ptr<u8>, code: static_ptr<u8>) String throws IError {
+    var cmd = std.process.Command(a, "curl");
+    cmd.add_arg("--silent");
+    cmd.add_arg("--show-error");
+    cmd.add_arg("--max-time");
+    cmd.add_arg("5");
+    cmd.add_arg("--write-out");
+    cmd.add_arg("\n%{http_code}");
+    if (String(method).equals_literal("HEAD")) {
+      cmd.add_arg("--head");
+    }
+    cmd.add_arg("--request");
+    cmd.add_arg(method);
+    var url = base.clone(a);
+    url.append(path);
+    cmd.add_arg(url);
+    var out = cmd.output();
+    check(out.status() == 0, "HTTP request failed");
+    var body = out.stdout();
+    check(body.ends_with(code), "unexpected HTTP status");
+    return body.substr(a, 0, body.length() - 4);
+  }
+  /* Waits for a consistent publication, allowing server startup and sampling. */
+  function wait_view(a: ref HeapAllocator, base: ref String, finished: bool) Json throws IError {
+    for (var i: i64 = 0; i < 100; i = i + 1) {
+      try {
+        var body = request(a, base, "/api/v1/view", "GET", "200");
+        var view = parse_json(a, body);
+        if (not view.get("snapshot").is_null()) {
+          if (finished) {
+            if (view.get("status").get("finished").as_bool()) {
+              return view;
+            }
+          } else if (view.get("snapshot").get("elapsed_ms").as_i64() >= 500) {
+            return view;
+          }
+        }
+      } catch (e: ref IError) {}
+      sleep(50);
+    }
+    throw Error(1, "server did not publish in time");
+  }
+  /* Verifies the resource bytes, APIs, retention, bind failures, and replay. */
+  function web(a: ref HeapAllocator, binary: ref String, html: ref String, directory: ref String) void throws IError {
+    var env = std.env.Env(a);
+    var uname = run(a, String("uname"), String("-m"), 0);
+    var enabled: bool = _target_is("linux") and uname.stdout().starts_with("x86_64");
+    match env.get("SUN_WEB") {
+      Option.Some(value) => {
+        if (value.equals_literal("0")) {
+          enabled = false;
+        }
+      },
+      Option.None => {}
+    };
+    if (not enabled) {
+      run(a, binary, String("--ui web"), 1);
+      return;
+    }
+    var port = free_port(a);
+    var base = String("http://127.0.0.1:");
+    base.append(port);
+    var recording = directory.clone(a);
+    recording.append("/web.jsonl");
+    var args = String("--ui web --interval .1 --history .3 --top 1 --port ");
+    args.append(port);
+    args.append(" --record ");
+    args.append(recording);
+    var cmd = command(a, binary, args);
+    cmd.set_stdout(std.process.Stdio.Null);
+    cmd.set_stderr(std.process.Stdio.Null);
+    var server = Running(cmd);
+    var view = wait_view(a, base, false);
+    check(view.get("status").get("evicted").as_bool(), "history retention missing");
+    var resources_text = request(a, base, "/api/v1/resources", "GET", "200");
+    var resources = parse_json(a, resources_text);
+    var names = String("disk service network temperature").split_whitespace(a);
+    var monitors: ref Json = resources.get("monitors");
+    for (var i: i64 = 0; i < names.size(); i = i + 1) {
+      var key = names.get(i).clone(a);
+      var resource: ref Json = monitors.get(key);
+      check(resource.get("lines").len() > 0, "web resource rows missing");
+      check(resource.get("samples").as_i64() > 0, "web resource sample missing");
+      check(resource.get("rows").is_array(), "structured resource rows missing");
+      check(resource.get("message").is_string(), "resource availability message missing");
+    }
+    check(resources.get("timestamp_ms").as_i64() > 0, "resource timestamp missing");
+    request(a, base, "/api/v1/resources", "POST", "405");
+    var actual = request(a, base, "/", "GET", "200");
+    var expected = std.io.read_to_string(a, html);
+    check(actual.equals(expected), "server did not serve packaged HTML");
+    var headers = request(a, base, "/", "HEAD", "200");
+    check(not headers.contains("<canvas"), "HEAD returned an HTML body");
+    request(a, base, "/api/v1/snapshot", "POST", "405");
+    request(a, base, "/absent", "GET", "404");
+    request(a, base, "/api/v1/history?id=bad", "GET", "400");
+    var occupied = BoundPort(a);
+    var duplicate = String("--ui web --port ");
+    duplicate.append(occupied.port);
+    run(a, binary, duplicate, 1);
+    var clients = Vec<Running>(a, 18);
+    for (var i: i64 = 0; i < 18; i = i + 1) {
+      var client = std.process.Command(a, "curl");
+      client.add_arg("--fail");
+      client.add_arg("--silent");
+      client.add_arg("--max-time");
+      client.add_arg("5");
+      var url = base.clone(a);
+      url.append("/api/v1/view");
+      client.add_arg(url);
+      client.set_stdout(std.process.Stdio.Piped);
+      client.set_stderr(std.process.Stdio.Null);
+      clients.push(Running(client));
+    }
+    for (var i: i64 = 0; i < clients.size(); i = i + 1) {
+      var response = clients.get(i).child.collect(a);
+      check(response.status() == 0, "concurrent HTTP request failed");
+      var current = parse_json(a, response.stdout());
+      var frames: ref Json = current.get("history");
+      check(frames.at(frames.len() - 1).to_string(a).equals(current.get("snapshot").to_string(a)), "inconsistent publication");
+    }
+    server.stop();
+    var recorded = std.io.read_to_string(a, recording);
+    check(recorded.contains(view.get("snapshot").to_string(a)), "web and recording differ");
+    var lines = recorded.split(a, b'\n');
+    var first = parse_json(a, lines.get(1));
+    var second = parse_json(a, lines.get(2));
+    var first_row: ref Json = first.get("processes").at(0);
+    var identity = first_row.get("id").as_string().clone(a);
+    first_row.set(String("label"), Json(String("<img src=x onerror=alert(1)>")));
+    var remaining = create_json_array(a);
+    var rows: ref Json = second.get("processes");
+    for (var i: i64 = 0; i < rows.len(); i = i + 1) {
+      if (not rows.at(i).get("id").as_string().equals(identity)) {
+        remaining.push(parse_json(a, rows.at(i).to_string(a)));
+      }
+    }
+    second.set(String("processes"), remaining);
+    var replay_text = lines.get(0).clone(a);
+    replay_text.append("\n");
+    replay_text.append(first.to_string(a));
+    replay_text.append("\n");
+    replay_text.append(second.to_string(a));
+    replay_text.append("\n");
+    std.io.write_string(recording, replay_text);
+    args = String("--ui web --interval .1 --port ");
+    args.append(port);
+    args.append(" --replay ");
+    args.append(recording);
+    cmd = command(a, binary, args);
+    cmd.set_stdout(std.process.Stdio.Null);
+    cmd.set_stderr(std.process.Stdio.Null);
+    var replay = Running(cmd);
+    view = wait_view(a, base, true);
+    check(view.get("status").get("replay").as_bool(), "replay status missing");
+    check(view.get("snapshot").to_string(a).equals(second.to_string(a)), "replay snapshot mismatch");
+    check(view.get("history").len() == 2, "replay history mismatch");
+    var identity_path = String("/api/v1/history?id=");
+    identity_path.append(identity);
+    var history_text = request_path(a, base, identity_path, "GET", "200");
+    var points = parse_json(a, history_text);
+    check(points.at(0).get("process").to_string(a).equals(first_row.to_string(a)), "identity history mismatch");
+    check(points.at(1).get("process").is_null(), "exited identity must leave a gap");
+    var snapshot = request(a, base, "/api/v1/snapshot", "GET", "200");
+    check(snapshot.equals(second.to_string(a)), "snapshot endpoint mismatch");
+    var live_before = parse_json(a, request(a, base, "/api/v1/resources", "GET", "200"));
+    sleep(1200);
+    var live_after = parse_json(a, request(a, base, "/api/v1/resources", "GET", "200"));
+    check(live_after.get("timestamp_ms").as_i64() > live_before.get("timestamp_ms").as_i64(), "replay completion stopped resource publication");
+    replay.stop();
+    var direct = String("--monitor network --ui web --samples 1 --port ");
+    direct.append(port);
+    var direct_result = run(a, binary, direct, 0);
+    check(direct_result.stdout().is_empty(), "resource web mode printed terminal output");
+    terminal(a, binary, directory, false, true);
+    terminal(a, binary, directory, true, true);
+  }
+}
+
+manifest {
+  source_files: ["acceptance-pty.sun"]
+  libraries: ["stdlib.moon"]
+}

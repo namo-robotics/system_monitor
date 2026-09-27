@@ -1,0 +1,160 @@
+/* Linux process collection reads procfs without elevated privileges. */
+public module system_monitor {
+  using std;
+  /* Reads a POSIX system configuration value. */
+  extern "C" function pm_sysconf(name: i32) i64 as "sysconf";
+  /* Reads a symbolic link into a caller-owned buffer. */
+  extern "C" function pm_readlink(path: raw_ptr<u8>, out: raw_ptr<u8>, size: u64) i64 as "readlink";
+
+  /* Returns the operating system CPU counter frequency. */
+  function clock_ticks() i64 {
+    return unsafe { pm_sysconf(2); };
+  }
+
+  /* Parses procfs fields without treating spaces in process names as separators. */
+  function parse_stat(a: const ref HeapAllocator, stat: const ref String, page: i64) Process throws IError {
+    var end: i64 = -1;
+    var begin: i64 = -1;
+    match stat.find_char(40u8) {
+      Option.Some(n) => {
+        begin = n;
+      },
+      Option.None => {}
+    };
+    match stat.rfind_char(41u8) {
+      Option.Some(n) => {
+        end = n;
+      },
+      Option.None => {}
+    };
+    if (begin < 1 or end <= begin) {
+      throw Error(1, "malformed process stat");
+    }
+    var pid = stat.substr(a, 0, begin);
+    pid.trim();
+    var rest = stat.substr(a, end + 1, stat.length() - end - 1);
+    var fields = rest.split_whitespace(a);
+    if (fields.size() < 22) {
+      throw Error(1, "short process stat");
+    }
+    var p = Process();
+    p.pid = number(pid);
+    p.exe = stat.substr(a, begin + 1, end - begin - 1);
+    p.start = number(fields.get(19));
+    p.ticks = number(fields.get(11)) + number(fields.get(12));
+    p.rss = number(fields.get(21)) * page;
+    return p;
+  }
+
+  /* Reads the host's physical memory total from procfs. */
+  function physical_memory(a: ref HeapAllocator) i64 throws IError {
+    var mem = std.io.read_to_string(a, "/proc/meminfo");
+    var lines = mem.split(a, 10u8);
+    for (var i: i64 = 0; i < lines.size(); i = i + 1) {
+      if (lines.get(i).starts_with("MemTotal:")) {
+        var parts = lines.get(i).split_whitespace(a);
+        return number(parts.get(1)) * 1024;
+      }
+    }
+    throw Error(1, "physical memory total unavailable");
+  }
+
+  /* Reads optional arguments and executable metadata without dropping a sample. */
+  function linux_metadata(a: ref HeapAllocator, base: const ref String, p: ref Process) void {
+    var cmd = base.clone(a);
+    cmd.append("/cmdline");
+    try {
+      p.args = std.io.read_to_string(a, cmd);
+    } catch (e: ref IError) {}
+    var exe = base.clone(a);
+    exe.append("/exe");
+    var buffer = ContiguousBuffer<u8>(a, 4096);
+    var n = unsafe { pm_readlink(exe.c_str(), buffer.raw_data(), 4095u64); };
+    if (n > 0) {
+      try {
+        p.exe = String(a, buffer, n);
+      } catch (e: ref IError) {}
+    }
+  }
+
+  /* Reads a process and verifies that its identity survived metadata collection. */
+  function linux_process(a: ref HeapAllocator, name: const ref String, page: i64) Process throws IError {
+    var base = String("/proc/");
+    base.append(name);
+    var path = base.clone(a);
+    path.append("/stat");
+    var stat = std.io.read_to_string(a, path);
+    var p = parse_stat(a, stat, page);
+    linux_metadata(a, base, p);
+    var confirm = std.io.read_to_string(a, path);
+    var check = parse_stat(a, confirm, page);
+    if (check.start != p.start) {
+      throw Error(1, "process changed during collection");
+    }
+    label_process(a, p);
+    return p;
+  }
+
+  /* Calls Linux directly for operations without musl libc wrappers. */
+  extern "C" function pm_syscall(number: i64, ...) i64 as "syscall";
+  /* Opens a stable process handle on Linux x86_64 and ARM64. */
+  function pm_pidfd_open(pid: i32, flags: u32) i32 {
+    return _convert<i32>(unsafe { pm_syscall(434i64, _convert<i64>(pid), _convert<u64>(flags)); });
+  }
+  /* Sends a signal through a stable handle on Linux x86_64 and ARM64. */
+  function pm_pidfd_signal(fd: i32, signal: i32) i32 {
+    return _convert<i32>(unsafe { pm_syscall(424i64, _convert<i64>(fd), _convert<i64>(signal), 0i64, 0i64); });
+  }
+  /* Releases a process handle after use. */
+  extern "C" function pm_close(fd: i32) i32 as "close";
+
+  /* Pins the process, verifies its start time, and sends the requested signal. */
+  function signal_process(a: ref HeapAllocator, pid: i32, start: i64, signal: i32) void throws IError {
+    var fd = unsafe { pm_pidfd_open(pid, 0); };
+    if (fd < 0) {
+      throw Error(1, "process handle unavailable");
+    }
+    try {
+      var path = String("/proc/");
+      path.append(pid);
+      path.append("/stat");
+      var stat = std.io.read_to_string(a, path);
+      var process = parse_stat(a, stat, 1);
+      if (process.start != start) {
+        throw Error(1, "process identity changed");
+      }
+      if (unsafe { pm_pidfd_signal(fd, signal); } != 0) {
+        throw Error(1, "signal rejected");
+      }
+    } catch (e: ref IError) {
+      unsafe { pm_close(fd); };
+      throw e;
+    }
+    unsafe { pm_close(fd); };
+  }
+
+  /* Samples visible processes and counts entries that disappear or cannot be read. */
+  function collect(a: ref HeapAllocator, elapsed: i64) Frame throws IError {
+    var f = Frame(a);
+    f.timestamp = std.time.read_unix_time_millis();
+    f.elapsed = elapsed;
+    f.total_memory = physical_memory(a);
+    var page = unsafe { pm_sysconf(30); };
+    if (page <= 0) {
+      throw Error(1, "system page size unavailable");
+    }
+    var entries = std.io.read_dir(a, "/proc");
+    for (var i: i64 = 0; i < entries.size(); i = i + 1) {
+      var name: ref String = entries.get(i).name();
+      if (name.is_empty() or name.at(0) < b'0' or name.at(0) > b'9') {
+        continue;
+      }
+      try {
+        f.processes.push(linux_process(a, name, page));
+      } catch (e: ref IError) {
+        f.inaccessible = f.inaccessible + 1;
+      }
+    }
+    return f;
+  }
+}

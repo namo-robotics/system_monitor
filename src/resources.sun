@@ -1,0 +1,570 @@
+/* Collects and presents the additional system monitors in one terminal window. */
+public module system_monitor {
+  using std;
+
+  /* Recognizes the views accepted by the command line. */
+  function valid_monitor(name: const ref String) bool {
+    return name.equals_literal("menu") or name.equals_literal("process") or name.equals_literal("disk") or name.equals_literal("service") or name.equals_literal("network") or name.equals_literal("temperature");
+  }
+
+  /* Maps the selection screen shortcuts to monitor names. */
+  function monitor_choice(ch: u8) String {
+    if (ch == b'1') {
+      return String("process");
+    }
+    if (ch == b'2') {
+      return String("disk");
+    }
+    if (ch == b'3') {
+      return String("service");
+    }
+    if (ch == b'4') {
+      return String("network");
+    }
+    if (ch == b'5') {
+      return String("temperature");
+    }
+    return String("menu");
+  }
+
+  /* Draws bounded lines without allowing host data to emit terminal commands. */
+  function panel(a: ref HeapAllocator, terminal: ref Terminal, lines: ref Vec<String>, first: i64, name: const ref String) void throws IError {
+    terminal.size(a);
+    var out = String("");
+    var count = lines.size();
+    if (terminal.active) {
+      out.append("\x1b[H\x1b[2J");
+      terminal.tabs(a, out, name);
+      count = terminal.rows - 2;
+      if (count < 1) {
+        count = 1;
+      }
+    }
+    for (var i: i64 = first; i < lines.size() and i < first + count; i = i + 1) {
+      var width: i64 = 4096;
+      if (terminal.active) {
+        width = terminal.columns - 1;
+      }
+      if (width < 1) {
+        width = 1;
+      }
+      out.append(safe_text(a, lines.get(i), width));
+      out.append("\r\n");
+    }
+    output(out);
+  }
+
+  /* Finds a monitor's position in the shared terminal and browser tab order. */
+  function monitor_index(name: const ref String) i64 {
+    if (name.equals_literal("disk")) {
+      return 1;
+    }
+    if (name.equals_literal("service")) {
+      return 2;
+    }
+    if (name.equals_literal("network")) {
+      return 3;
+    }
+    if (name.equals_literal("temperature")) {
+      return 4;
+    }
+    return 0;
+  }
+
+  /* Holds cumulative traffic counters for one interface. */
+  class Traffic {
+    var name: String = String("");
+    var received: i64 = 0;
+    var sent: i64 = 0;
+    var errors: i64 = 0;
+    var drops: i64 = 0;
+  }
+
+  /* Parses a Linux interface row, preserving names and rejecting short records. */
+  function parse_traffic(a: ref HeapAllocator, line: const ref String) Traffic throws IError {
+    var colon: i64 = -1;
+    match line.rfind_char(b':') {
+      Option.Some(n) => {
+        colon = n;
+      },
+      Option.None => {}
+    };
+    if (colon < 1) {
+      throw Error(1, "missing interface separator");
+    }
+    var traffic = Traffic();
+    traffic.name = line.substr(a, 0, colon);
+    traffic.name.trim();
+    var rest = line.substr(a, colon + 1, line.length() - colon - 1);
+    var parts = rest.split_whitespace(a);
+    if (parts.size() < 16) {
+      throw Error(1, "short interface counters");
+    }
+    traffic.received = number(parts.get(0));
+    traffic.sent = number(parts.get(8));
+    traffic.errors = number(parts.get(2)) + number(parts.get(10));
+    traffic.drops = number(parts.get(3)) + number(parts.get(11));
+    return traffic;
+  }
+
+  /* Computes bytes per second only when a valid previous counter exists. */
+  function traffic_rate(before: i64, after: i64, millis: i64) f64 {
+    if (millis <= 0 or after < before) {
+      return -1.0;
+    }
+    return _convert<f64>(after - before) * 1000.0 / _convert<f64>(millis);
+  }
+
+  /* Reads an optional sensor attribute without failing the entire view. */
+  function attribute(a: ref HeapAllocator, path: const ref String) String {
+    try {
+      var file = path.clone(a);
+      var value = std.io.read_to_string(a, file);
+      value.trim();
+      return value;
+    } catch (e: ref IError) {
+      return String("");
+    }
+  }
+
+  /* Joins a sysfs directory and an attribute name. */
+  function resource_path(a: const ref HeapAllocator, base: const ref String, name: const ref String) String {
+    var path = base.clone(a);
+    path.append("/");
+    path.append(name);
+    return path;
+  }
+
+  /* Converts a readable Linux millidegree attribute to Celsius. */
+  function temperature_text(value: ref String) String {
+    try {
+      var degrees = _convert<f64>(number(value)) / 1000.0;
+      if (degrees < 0.0) {
+        var text = String("-");
+        text.append(decimal(-degrees));
+        return text;
+      }
+      return decimal(degrees);
+    } catch (e: ref IError) {
+      return String("N/A");
+    }
+  }
+
+  /* Joins utility fields while preserving names that contain spaces. */
+  function joined_fields(a: const ref HeapAllocator, fields: ref Vec<String>, first: i64, last: i64) String throws IError {
+    var text = String("");
+    for (var i = first; i < last; i = i + 1) {
+      if (i > first) {
+        text.append(" ");
+      }
+      text.append(fields.get(i));
+    }
+    return text;
+  }
+
+  /* Parses POSIX df columns into byte counts and a separate mount name. */
+  function disk_row(a: ref HeapAllocator, line: const ref String) Json throws IError {
+    var fields = line.split_whitespace(a);
+    for (var i: i64 = 1; i + 4 < fields.size(); i = i + 1) {
+      var capacity: ref String = fields.get(i + 3);
+      if (not capacity.ends_with("%") and not capacity.equals_literal("-")) {
+        continue;
+      }
+      var total = number(fields.get(i));
+      var used = number(fields.get(i + 1));
+      var available = number(fields.get(i + 2));
+      var percent: i64 = -1;
+      if (capacity.ends_with("%")) {
+        var percent_text = capacity.substr(a, 0, capacity.length() - 1);
+        percent = number(percent_text);
+        if (percent < 0) {
+          throw Error(1, "invalid filesystem percentage");
+        }
+      }
+      if (total < 0 or used < 0) {
+        throw Error(1, "invalid filesystem counters");
+      }
+      var row = create_json_object(a);
+      row.set(String("filesystem"), Json(joined_fields(a, fields, 0, i)));
+      row.set(String("mount"), Json(joined_fields(a, fields, i + 4, fields.size())));
+      row.set(String("total_bytes"), Json(total * 1024));
+      row.set(String("used_bytes"), Json(used * 1024));
+      row.set(String("available_bytes"), Json(available * 1024));
+      if (percent < 0) {
+        row.set(String("used_percent"), Json());
+      } else {
+        row.set(String("used_percent"), Json(percent));
+      }
+      return row;
+    }
+    throw Error(1, "malformed filesystem row");
+  }
+
+  /* Preserves the systemd unit identity, state columns and description. */
+  function service_row(a: ref HeapAllocator, line: const ref String) Json throws IError {
+    var fields = line.split_whitespace(a);
+    if (fields.size() < 4 or not fields.get(0).ends_with(".service")) {
+      throw Error(1, "malformed service row");
+    }
+    var row = create_json_object(a);
+    row.set(String("unit"), create_json_string(a, fields.get(0)));
+    row.set(String("load"), create_json_string(a, fields.get(1)));
+    row.set(String("active"), create_json_string(a, fields.get(2)));
+    row.set(String("sub"), create_json_string(a, fields.get(3)));
+    row.set(String("description"), Json(joined_fields(a, fields, 4, fields.size())));
+    return row;
+  }
+
+  /* Encodes missing rate baselines as null instead of a fabricated zero. */
+  function rate_json(rate: f64) Json {
+    if (rate < 0.0) {
+      return Json();
+    }
+    return Json(rate);
+  }
+
+  /* Converts signed millidegrees to Celsius, keeping unreadable values null. */
+  function degrees_json(value: const ref String) Json {
+    try {
+      return Json(_convert<f64>(number(value)) / 1000.0);
+    } catch (e: ref IError) {
+      return Json();
+    }
+  }
+
+  /* Describes a sensor without treating a missing threshold as a healthy reading. */
+  function sensor_row(a: ref HeapAllocator, name: const ref String, value: const ref String, critical: const ref String) Json throws IError {
+    var row = create_json_object(a);
+    row.set(String("sensor"), create_json_string(a, name));
+    row.set(String("celsius"), degrees_json(value));
+    row.set(String("critical_celsius"), degrees_json(critical));
+    var status = String("unavailable");
+    try {
+      var current = number(value);
+      status = String("no threshold");
+      try {
+        var limit = number(critical);
+        status = String("normal");
+        if (current >= limit) {
+          status = String("critical");
+        }
+      } catch (e: ref IError) {}
+    } catch (e: ref IError) {}
+    row.set(String("status"), Json(status));
+    return row;
+  }
+
+  /* Owns the latest resource rows and previous interface counters. */
+  class Resources {
+    var lines: Vec<String>;
+    var previous: Vec<Traffic>;
+    var rows: Json = Json();
+    var message: String = String("");
+    var elapsed: i64 = -1;
+    var samples: i64 = 0;
+
+    /* Creates empty collector state. */
+    init(a: ref HeapAllocator) {
+      this.lines = Vec<String>(a, 32);
+      this.rows = create_json_array(a);
+      this.message = String("");
+      this.previous = Vec<Traffic>(a, 16);
+    }
+
+    /* Clears rate baselines when the selected view changes. */
+    method reset(a: ref HeapAllocator) void {
+      this.lines = Vec<String>(a, 32);
+      this.rows = create_json_array(a);
+      this.message = String("");
+      this.previous = Vec<Traffic>(a, 16);
+      this.elapsed = -1;
+      this.samples = 0;
+    }
+
+    /* Runs a fixed read-only system utility without shell interpolation. */
+    method command(a: ref HeapAllocator, program: const ref String, arguments: const ref String) void throws IError {
+      var cmd = std.process.Command(a, program);
+      var parts = arguments.split_whitespace(a);
+      for (var i: i64 = 0; i < parts.size(); i = i + 1) {
+        cmd.add_arg(parts.get(i));
+      }
+      var result = cmd.output();
+      var rows = result.stdout().split(a, 10u8);
+      for (var i: i64 = 0; i < rows.size(); i = i + 1) {
+        if (not rows.get(i).is_empty()) {
+          this.lines.push(rows.get(i).clone(a));
+        }
+      }
+      if (result.status() != 0) {
+        this.message = String("Unavailable: system utility could not complete.");
+        this.lines.push(this.message.clone(a));
+        var errors = result.stderr().split(a, 10u8);
+        if (errors.size() > 0) {
+          this.lines.push(errors.get(0).clone(a));
+          this.message.append(" ");
+          this.message.append(errors.get(0));
+        }
+      }
+    }
+
+    /* Reads filesystem capacity in portable POSIX blocks. */
+    method disks(a: ref HeapAllocator) void throws IError {
+      this.lines.push(String("Filesystem usage (1024-byte blocks); Available excludes reserved space."));
+      this.lines.push(String(""));
+      this.command(a, String("df"), String("-Pk"));
+      for (var i: i64 = 3; i < this.lines.size(); i = i + 1) {
+        try {
+          this.rows.push(disk_row(a, this.lines.get(i)));
+        } catch (e: ref IError) {}
+      }
+      if (this.rows.len() == 0 and this.message.is_empty()) {
+        this.message = String("No filesystem measurements available.");
+      }
+    }
+
+    /* Lists all loaded system services, including inactive and failed units. */
+    method services(a: ref HeapAllocator) void throws IError {
+      if (_target_is("linux")) {
+        this.lines.push(String("System services: ACTIVE / SUB / LOAD / UNIT"));
+        this.lines.push(String("Includes inactive loaded units; failed units show 'failed'."));
+        this.command(a, String("systemctl"), String("list-units --type=service --all --no-pager --plain --no-legend"));
+        for (var i: i64 = 2; i < this.lines.size(); i = i + 1) {
+          var fields = this.lines.get(i).split_whitespace(a);
+          if (fields.size() >= 4 and fields.get(0).ends_with(".service")) {
+            this.rows.push(service_row(a, this.lines.get(i)));
+            var row = padded(fields.get(2), 11);
+            row.append(padded(fields.get(3), 14));
+            row.append(padded(fields.get(1), 11));
+            row.append(fields.get(0));
+            var line: ref String = this.lines.get(i);
+            line = row;
+          }
+        }
+      } else {
+        this.lines.push(String("Launch agents in the current launchd domain: PID / last exit status / label"));
+        this.command(a, String("launchctl"), String("list"));
+        this.message = String("Structured service metrics require systemd on Linux.");
+      }
+    }
+
+    /* Reads per-interface traffic and calculates rates using actual elapsed time. */
+    method network(a: ref HeapAllocator, now: i64) void throws IError {
+      if (not _target_is("linux")) {
+        this.lines.push(String("Interface totals from netstat; bytes, packets, errors and drops."));
+        this.command(a, String("netstat"), String("-ibn"));
+        this.message = String("Structured network metrics require Linux procfs.");
+        return;
+      }
+      this.lines.push(String("INTERFACE  STATE  RX KiB/s  TX KiB/s  RX MiB  TX MiB  ERRORS  DROPS"));
+      this.lines.push(String("N/A rates need a baseline or indicate a counter reset."));
+      var text = std.io.read_to_string(a, "/proc/net/dev");
+      var rows = text.split(a, 10u8);
+      var current = Vec<Traffic>(a, 16);
+      for (var i: i64 = 2; i < rows.size(); i = i + 1) {
+        if (rows.get(i).is_empty()) {
+          continue;
+        }
+        var t = parse_traffic(a, rows.get(i));
+        var rx: f64 = -1.0;
+        var tx: f64 = -1.0;
+        for (var j: i64 = 0; j < this.previous.size(); j = j + 1) {
+          var old: ref Traffic = this.previous.get(j);
+          if (old.name.equals(t.name)) {
+            rx = traffic_rate(old.received, t.received, now - this.elapsed);
+            tx = traffic_rate(old.sent, t.sent, now - this.elapsed);
+          }
+        }
+        var record = create_json_object(a);
+        record.set(String("interface"), create_json_string(a, t.name));
+        record.set(String("rx_bytes_per_sec"), rate_json(rx));
+        record.set(String("tx_bytes_per_sec"), rate_json(tx));
+        record.set(String("rx_bytes"), Json(t.received));
+        record.set(String("tx_bytes"), Json(t.sent));
+        record.set(String("errors"), Json(t.errors));
+        record.set(String("drops"), Json(t.drops));
+        if (rx >= 0.0) {
+          rx = rx / 1024.0;
+        }
+        if (tx >= 0.0) {
+          tx = tx / 1024.0;
+        }
+        var path = String("/sys/class/net/");
+        path.append(t.name);
+        path.append("/operstate");
+        var state = attribute(a, path);
+        if (state.is_empty()) {
+          state = String("N/A");
+        }
+        record.set(String("state"), create_json_string(a, state));
+        this.rows.push(record);
+        var row = t.name.clone(a);
+        row.append("  ");
+        row.append(state);
+        row.append("  ");
+        row.append(decimal(rx));
+        row.append("  ");
+        row.append(decimal(tx));
+        row.append("  ");
+        row.append(decimal(_convert<f64>(t.received) / 1048576.0));
+        row.append("  ");
+        row.append(decimal(_convert<f64>(t.sent) / 1048576.0));
+        row.append("  ");
+        row.append(t.errors);
+        row.append("  ");
+        row.append(t.drops);
+        this.lines.push(row);
+        current.push(t);
+      }
+      this.previous = current;
+      this.elapsed = now;
+    }
+
+    /* Adds a sensor with its optional critical threshold. */
+    method sensor(a: ref HeapAllocator, name: String, path: const ref String, critical_path: const ref String) void throws IError {
+      var value = attribute(a, path);
+      var critical = attribute(a, critical_path);
+      this.rows.push(sensor_row(a, name, value, critical));
+      var row = name;
+      row.append("  ");
+      row.append(temperature_text(value));
+      row.append(" C  critical ");
+      row.append(temperature_text(critical));
+      row.append(" C");
+      try {
+        if (number(value) >= number(critical)) {
+          row.append("  CRITICAL");
+        }
+      } catch (e: ref IError) {}
+      this.lines.push(row);
+    }
+
+    /* Discovers Linux hardware sensors and falls back to thermal zones. */
+    method temperatures(a: ref HeapAllocator) void throws IError {
+      this.lines.push(String("SENSOR  TEMPERATURE  CRITICAL THRESHOLD"));
+      if (not _target_is("linux")) {
+        this.message = String("Unavailable: macOS does not expose temperatures through a supported public API.");
+        this.lines.push(this.message.clone(a));
+        return;
+      }
+      var sensors: i64 = 0;
+      if (std.io.exists("/sys/class/hwmon")) {
+        var devices = std.io.read_dir(a, "/sys/class/hwmon");
+        for (var i: i64 = 0; i < devices.size(); i = i + 1) {
+          var base = resource_path(a, String("/sys/class/hwmon"), devices.get(i).name());
+          try {
+            var chip = attribute(a, resource_path(a, base, String("name")));
+            var files = std.io.read_dir(a, base);
+            for (var j: i64 = 0; j < files.size(); j = j + 1) {
+              var name: ref String = files.get(j).name();
+              if (not name.starts_with("temp") or not name.ends_with("_input")) {
+                continue;
+              }
+              var stem = name.substr(a, 0, name.length() - 6);
+              var label_name = stem.clone(a);
+              label_name.append("_label");
+              var label = attribute(a, resource_path(a, base, label_name));
+              if (label.is_empty()) {
+                label = stem.clone(a);
+              }
+              var title = devices.get(i).name().clone(a);
+              title.append("/");
+              title.append(chip);
+              title.append("/");
+              title.append(label);
+              var crit_name = stem.clone(a);
+              crit_name.append("_crit");
+              this.sensor(a, title, resource_path(a, base, name), resource_path(a, base, crit_name));
+              sensors = sensors + 1;
+            }
+          } catch (e: ref IError) {}
+        }
+      }
+      if (sensors == 0 and std.io.exists("/sys/class/thermal")) {
+        var zones = std.io.read_dir(a, "/sys/class/thermal");
+        for (var i: i64 = 0; i < zones.size(); i = i + 1) {
+          if (not zones.get(i).name().starts_with("thermal_zone")) {
+            continue;
+          }
+          var base = resource_path(a, String("/sys/class/thermal"), zones.get(i).name());
+          var label = zones.get(i).name().clone(a);
+          label.append("/");
+          label.append(attribute(a, resource_path(a, base, String("type"))));
+          this.sensor(a, label, resource_path(a, base, String("temp")), String(""));
+          sensors = sensors + 1;
+        }
+      }
+      if (sensors == 0) {
+        this.message = String("Unavailable: no readable hardware temperature sensors were exposed by this host.");
+        this.lines.push(this.message.clone(a));
+      }
+    }
+
+    /* Collects one view and keeps failures visible without exiting the monitor. */
+    method sample(a: ref HeapAllocator, name: const ref String, now: i64) void {
+      this.lines = Vec<String>(a, 32);
+      this.rows = create_json_array(a);
+      this.message = String("");
+      try {
+        if (name.equals_literal("disk")) {
+          this.disks(a);
+        } else if (name.equals_literal("service")) {
+          this.services(a);
+        } else if (name.equals_literal("network")) {
+          this.network(a, now);
+        } else if (name.equals_literal("temperature")) {
+          this.temperatures(a);
+        }
+      } catch (e: ref IError) {
+        var message = String("Unavailable: ");
+        message.append(e.message());
+        this.message = message.clone(a);
+        this.lines.push(message);
+      }
+      this.samples = this.samples + 1;
+    }
+
+    /* Renders a scrollable page while preserving the title and navigation hints. */
+    method draw(a: ref HeapAllocator, terminal: ref Terminal, name: const ref String) void throws IError {
+      if (terminal.paused) {
+        return;
+      }
+      terminal.size(a);
+      var page = Vec<String>(a, 32);
+      var title = String("SYSTEM MONITOR / ");
+      title.append(name);
+      title.append("  |  sample ");
+      title.append(this.samples);
+      page.push(title);
+      if (terminal.tabs_focused) {
+        page.push(String("TABS: Left/Right choose  Down/Enter view  1-5 jump  q quit"));
+      } else {
+        page.push(String("1-5 tabs  Tab focus  Up/Down scroll  space pause  q quit"));
+      }
+      var visible = terminal.rows - 6;
+      if (visible < 1) {
+        visible = 1;
+      }
+      var max_scroll = this.lines.size() - visible;
+      if (max_scroll < 0) {
+        max_scroll = 0;
+      }
+      if (terminal.selected_row > max_scroll) {
+        terminal.selected_row = max_scroll;
+      }
+      var first = terminal.selected_row;
+      if (not terminal.active) {
+        first = 0;
+        visible = this.lines.size();
+      }
+      for (var i = first; i < this.lines.size() and i < first + visible; i = i + 1) {
+        page.push(this.lines.get(i).clone(a));
+      }
+      var footer = String("Rows ");
+      footer.append(first + 1);
+      footer.append(" / ");
+      footer.append(this.lines.size());
+      page.push(footer);
+      panel(a, terminal, page, 0, name);
+    }
+  }
+}

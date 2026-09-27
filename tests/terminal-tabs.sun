@@ -1,0 +1,101 @@
+/* Checks keyboard focus, shared shortcuts and terminal tab rendering. */
+public module system_monitor {
+  using std;
+
+  /* Sends an arrow sequence one byte at a time, as it may arrive from a terminal. */
+  function tab_test_arrow(terminal: ref Terminal, options: ref Options, final: u8) void {
+    terminal.apply_key(27u8, options);
+    terminal.apply_key(b'[', options);
+    terminal.apply_key(final, options);
+  }
+
+  /* Opens Processes by default and reserves every numbered shortcut for a monitor. */
+  test_function terminal_numbers_select_tabs() {
+    var a = make_heap_allocator();
+    var terminal = Terminal(a, false);
+    var options = Options();
+    std.test.assert(options.monitor.equals_literal("process"), "process default");
+    for (var key: u8 = b'1'; key <= b'5'; key = key + 1u8) {
+      terminal.paused = true;
+      terminal.selected_pid = 42;
+      terminal.pending_signal = 9;
+      terminal.apply_key(key, options);
+      std.test.assert(options.monitor.equals(monitor_choice(key)), "number selects monitor");
+      std.test.assert(not terminal.paused and not terminal.tabs_focused, "direct shortcut enters view");
+      std.test.assert_eq(terminal.selected_pid, 0i64);
+      std.test.assert_eq(terminal.pending_signal, 0i32);
+    }
+    std.test.assert_eq(options.top, 10i64);
+    terminal.apply_key(b'1', options);
+    terminal.apply_key(b'f', options);
+    std.test.assert_eq(options.top, 5i64);
+  }
+
+  /* Moves up to tabs, wraps left and right, then re-enters content without scrolling it. */
+  test_function terminal_arrow_focus_moves_between_tabs_and_rows() {
+    var a = make_heap_allocator();
+    var terminal = Terminal(a, false);
+    var options = Options();
+    tab_test_arrow(terminal, options, b'B');
+    std.test.assert_eq(terminal.selected_row, 1i64);
+    tab_test_arrow(terminal, options, b'A');
+    std.test.assert(not terminal.tabs_focused, "first up reaches first row");
+    tab_test_arrow(terminal, options, b'A');
+    std.test.assert(terminal.tabs_focused, "up at first row focuses tabs");
+    tab_test_arrow(terminal, options, b'D');
+    std.test.assert(options.monitor.equals_literal("temperature"), "left wraps to last tab");
+    tab_test_arrow(terminal, options, b'C');
+    std.test.assert(options.monitor.equals_literal("process"), "right wraps to first tab");
+    tab_test_arrow(terminal, options, b'C');
+    std.test.assert(options.monitor.equals_literal("disk"), "right selects disk");
+    tab_test_arrow(terminal, options, b'B');
+    std.test.assert(not terminal.tabs_focused, "down enters content");
+    std.test.assert_eq(terminal.selected_row, 0i64);
+    tab_test_arrow(terminal, options, b'B');
+    std.test.assert_eq(terminal.selected_row, 1i64);
+    terminal.apply_key(9u8, options);
+    std.test.assert(terminal.tabs_focused, "Tab focuses tabs from a scrolled row");
+    terminal.apply_key(13u8, options);
+    std.test.assert(not terminal.tabs_focused, "Enter returns to content");
+    std.test.assert_eq(terminal.selected_row, 1i64);
+  }
+
+  /* Blocks process actions while focus is on tabs or a different monitor. */
+  test_function terminal_tabs_do_not_signal_processes() {
+    var a = make_heap_allocator();
+    var terminal = Terminal(a, false);
+    var options = Options();
+    terminal.apply_key(9u8, options);
+    terminal.apply_key(b't', options);
+    terminal.apply_key(b'k', options);
+    std.test.assert_eq(terminal.pending_signal, 0i32);
+    terminal.pending_signal = 9;
+    terminal.perform_action(a, options);
+    std.test.assert_eq(terminal.pending_signal, 0i32);
+    std.test.assert(terminal.notice.is_empty(), "no process action on tabs");
+    terminal.apply_key(b'2', options);
+    terminal.apply_key(b'k', options);
+    std.test.assert_eq(terminal.pending_signal, 0i32);
+    terminal.apply_key(27u8, options);
+    terminal.apply_key(b'[', options);
+    terminal.apply_key(b'5', options);
+    terminal.apply_key(b'~', options);
+    std.test.assert(options.monitor.equals_literal("disk"), "escape parameters are not shortcuts");
+  }
+
+  /* Keeps tab names and selection visible within wide and compact terminal widths. */
+  test_function terminal_tabs_fit_available_width() {
+    var a = make_heap_allocator();
+    var terminal = Terminal(a, false);
+    terminal.columns = 80;
+    var strip = String("");
+    terminal.tabs(a, strip, String("process"));
+    std.test.assert(strip.contains("[1 Processes]") and strip.contains("5 Temperature"), "complete horizontal tabs");
+    terminal.columns = 40;
+    strip.clear();
+    terminal.tabs(a, strip, String("temperature"));
+    std.test.assert(strip.contains("[5 T]"), "compact selected tab");
+    std.test.assert(strip.length() <= terminal.columns + 1, "one line plus CRLF");
+    std.test.assert(not strip.contains("\x1b"), "unstyled output");
+  }
+}

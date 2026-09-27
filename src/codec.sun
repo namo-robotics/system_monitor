@@ -1,0 +1,82 @@
+/* Versioned serialization of process samples without command-line secrets. */
+public module system_monitor {
+  using std;
+
+  /* Serializes one process with nulls for unavailable measurements. */
+  function process_json(a: ref HeapAllocator, p: ref Process) Json throws IError {
+    var j = create_json_object(a);
+    j.set(String("id"), Json(p.id()));
+    j.set(String("pid"), Json(p.pid));
+    // Start identifiers are strings to preserve precision in browsers.
+    var start = String("");
+    start.append(p.start);
+    j.set(String("start"), Json(start));
+    j.set(String("exe"), create_json_string(a, p.exe));
+    j.set(String("label"), create_json_string(a, p.label));
+    if (p.cpu < 0.0) {
+      j.set(String("cpu"), Json());
+    } else {
+      j.set(String("cpu"), Json(p.cpu));
+    }
+    if (p.rss < 0) {
+      j.set(String("rss"), Json());
+    } else {
+      j.set(String("rss"), Json(p.rss));
+    }
+    if (p.memory < 0.0) {
+      j.set(String("memory"), Json());
+    } else {
+      j.set(String("memory"), Json(p.memory));
+    }
+    return j;
+  }
+
+  /* Serializes one complete sample independently of display filters. */
+  function frame_json(a: ref HeapAllocator, f: ref Frame) Json throws IError {
+    var j = create_json_object(a);
+    var rows = create_json_array(a);
+    j.set(String("version"), Json(1i64));
+    j.set(String("type"), Json(String("sample")));
+    j.set(String("timestamp"), Json(f.timestamp));
+    j.set(String("elapsed_ms"), Json(f.elapsed));
+    j.set(String("total_memory"), Json(f.total_memory));
+    j.set(String("inaccessible"), Json(f.inaccessible));
+    for (var i: i64 = 0; i < f.processes.size(); i = i + 1) {
+      rows.push(process_json(a, f.processes.get(i)));
+    }
+    j.set(String("processes"), rows);
+    return j;
+  }
+
+  /* Validates and decodes one versioned recording sample. */
+  function decode_frame(a: ref HeapAllocator, j: ref Json) Frame throws IError {
+    if (j.get("version").as_i64() != 1 or not j.get("type").as_string().equals_literal("sample")) {
+      throw Error(1, "unsupported recording sample");
+    }
+    var f = Frame(a);
+    f.timestamp = j.get("timestamp").as_i64();
+    f.elapsed = j.get("elapsed_ms").as_i64();
+    f.total_memory = j.get("total_memory").as_i64();
+    f.inaccessible = j.get("inaccessible").as_i64();
+    var rows: ref Json = j.get("processes");
+    for (var i: i64 = 0; i < rows.len(); i = i + 1) {
+      var row: ref Json = rows.at(i);
+      var p = Process();
+      p.pid = row.get("pid").as_i64();
+      p.start = number(row.get("start").as_string());
+      p.exe = row.get("exe").as_string().clone(a);
+      p.label = row.get("label").as_string().clone(a);
+      if (not row.get("cpu").is_null()) {
+        p.cpu = row.get("cpu").as_f64();
+      }
+      if (not row.get("rss").is_null()) {
+        p.rss = row.get("rss").as_i64();
+      }
+      if (not row.get("memory").is_null()) {
+        p.memory = row.get("memory").as_f64();
+      }
+      f.processes.push(p);
+    }
+    return f;
+  }
+}

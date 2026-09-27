@@ -1,0 +1,202 @@
+/* Behavioral tests for metrics, identities, history, labels, and recordings. */
+public module system_monitor {
+  using std;
+  /* Groups related behavioral tests. */
+  module core_tests {
+    /* Checks that cpu units and missing data. */
+    test_function cpu_units_and_missing_data() {
+      std.test.assert(cpu_percent(100, 300, 1000, 100) == 200.0, "multicore CPU");
+      std.test.assert(cpu_percent(100, 99, 1000, 100) < 0.0, "reset is unknown");
+      std.test.assert(cpu_percent(100, 100, 1000, 100) == 0.0, "idle is zero");
+      std.test.assert(cpu_percent(0, 1, 0, 100) < 0.0, "zero time is unknown");
+    }
+    /* Checks that pid reuse does not inherit cpu. */
+    test_function pid_reuse_does_not_inherit_cpu() {
+      var a = make_heap_allocator();
+      var old = Frame(a);
+      var now = Frame(a);
+      var p = Process();
+      p.pid = 7;
+      p.start = 1;
+      p.ticks = 100;
+      old.processes.push(p);
+      var q = Process();
+      q.pid = 7;
+      q.start = 2;
+      q.ticks = 200;
+      now.processes.push(q);
+      now.elapsed = 1000;
+      calculate(now, old, 100);
+      std.test.assert(now.processes.get(0).cpu < 0.0, "new identity has no baseline");
+    }
+    /* Checks that history evicts old frames. */
+    test_function history_evicts_old_frames() {
+      var a = make_heap_allocator();
+      var h = History(a);
+      h.duration = 1000;
+      var f = Frame(a);
+      f.elapsed = 0;
+      h.add(f);
+      var g = Frame(a);
+      g.elapsed = 2000;
+      h.add(g);
+      std.test.assert_eq(h.frames.size(), 1i64);
+      std.test.assert(h.evicted, "eviction reported");
+      h.limit = 1;
+      var huge = Frame(a);
+      huge.elapsed = 3000;
+      h.add(huge);
+      std.test.assert_eq(h.frames.size(), 0i64);
+      std.test.assert_eq(h.bytes, 0i64);
+    }
+    /* Checks that ros labels and roundtrip. */
+    test_function ros_labels_and_roundtrip() {
+      var a = make_heap_allocator();
+      var p = Process();
+      p.pid = 42;
+      p.start = 123;
+      p.exe = String("/opt/ros/component_container");
+      p.args = String("node\0--ros-args\0-r\0__node:=camera\0-r\0__ns:=/robot\0");
+      label_process(a, p);
+      std.test.assert(p.label.equals_literal("/robot/camera [shared container]"), "ROS label");
+      var f = Frame(a);
+      f.processes.push(p);
+      var j = frame_json(a, f);
+      var copy = decode_frame(a, j);
+      std.test.assert_eq(copy.processes.get(0).start, 123i64);
+      std.test.assert(copy.processes.get(0).cpu < 0.0, "unknown preserved");
+    }
+    /* Checks that ranking keeps all samples and breaks ties. */
+    test_function ranking_keeps_all_samples_and_breaks_ties() {
+      var a = make_heap_allocator();
+      var f = Frame(a);
+      var p = Process();
+      p.pid = 2;
+      p.cpu = 10.0;
+      f.processes.push(p);
+      var q = Process();
+      q.pid = 1;
+      q.cpu = 10.0;
+      f.processes.push(q);
+      var order = ranking(a, f, false);
+      std.test.assert_eq(order.get(0), 1i64);
+      std.test.assert_eq(f.processes.size(), 2i64);
+    }
+  }
+
+  /* Groups related behavioral tests. */
+  module additional_tests {
+    /* Verifies explicit labels do not leak across PID reuse or appear late. */
+    test_function labels_bind_only_to_initial_identities() {
+      var a = make_heap_allocator();
+      var labels = Labels(a);
+      labels.document = parse_json(a, "{\"7\":\"camera\",\"8\":\"late\"}");
+      var f = Frame(a);
+      var p = Process();
+      p.pid = 7;
+      p.start = 1;
+      f.processes.push(p);
+      labels.apply(a, f);
+      std.test.assert(f.processes.get(0).label.equals_literal("camera"), "initial label");
+      var next = Frame(a);
+      var q = Process();
+      q.pid = 7;
+      q.start = 2;
+      q.label = String("original");
+      next.processes.push(q);
+      var late = Process();
+      late.pid = 8;
+      late.start = 3;
+      late.label = String("unbound");
+      next.processes.push(late);
+      labels.apply(a, next);
+      std.test.assert(next.processes.get(0).label.equals_literal("original"), "reused PID");
+      std.test.assert(next.processes.get(1).label.equals_literal("unbound"), "late PID");
+    }
+    /* Verifies resident memory percentages and normal CPU deltas. */
+    test_function metrics_use_elapsed_time_and_physical_memory() {
+      var a = make_heap_allocator();
+      var old = Frame(a);
+      var next = Frame(a);
+      var p = Process();
+      p.pid = 1;
+      p.start = 8;
+      p.ticks = 100;
+      old.processes.push(p);
+      var q = Process();
+      q.pid = 1;
+      q.start = 8;
+      q.ticks = 150;
+      q.rss = 256;
+      next.processes.push(q);
+      next.elapsed = 500;
+      next.total_memory = 1024;
+      calculate(next, old, 100);
+      std.test.assert(next.processes.get(0).cpu == 100.0, "one core");
+      std.test.assert(next.processes.get(0).memory == 25.0, "RSS percentage");
+    }
+    /* Keeps exited samples until their history expires. */
+    test_function exited_process_history_and_missing_gaps() {
+      var a = make_heap_allocator();
+      var history = History(a);
+      var f = Frame(a);
+      var p = Process();
+      p.pid = 2;
+      p.start = 3;
+      p.cpu = 50.0;
+      f.processes.push(p);
+      history.add(f);
+      var next = Frame(a);
+      next.elapsed = 1000;
+      history.add(next);
+      std.test.assert(history_value(history.frames.get(0), 2, 3, false) == 50.0, "retained measurement");
+      std.test.assert(history_value(history.frames.get(1), 2, 3, false) < 0.0, "exit stays unavailable");
+    }
+    /* Filters ROS remaps to the ROS argument section. */
+    test_function ordinary_arguments_do_not_rename_processes() {
+      var a = make_heap_allocator();
+      var p = Process();
+      p.exe = String("/bin/tool");
+      p.args = String("tool\0__node:=fake\0");
+      label_process(a, p);
+      std.test.assert(p.label.equals_literal("tool"), "non-ROS arguments ignored");
+    }
+    /* Sanitizes process names before printing terminal control sequences. */
+    test_function terminal_names_are_plain_text() {
+      var a = make_heap_allocator();
+      var s = String("a\x1b[2J\nb");
+      var text = safe_text(a, s, 20);
+      std.test.assert(text.equals_literal("a?[2J?b"), "escape and newline removed");
+    }
+    /* Verifies copied history owns display data independently of the live frame. */
+    test_function history_copy_does_not_alias_live_samples() {
+      var a = make_heap_allocator();
+      var f = Frame(a);
+      var p = Process();
+      p.label = String("before");
+      f.processes.push(p);
+      var copy = f.copy(a);
+      f.processes.get(0).label = String("after");
+      std.test.assert(copy.processes.get(0).label.equals_literal("before"), "independent copy");
+    }
+  }
+  /* Checks that changing rankings never modifies the resource measurements. */
+  test_function memory_sort_preserves_cpu_samples() {
+    var a = make_heap_allocator();
+    var f = Frame(a);
+    var p = Process();
+    p.pid = 1;
+    p.cpu = 7.0;
+    p.rss = 10;
+    f.processes.push(p);
+    var q = Process();
+    q.pid = 2;
+    q.cpu = 3.0;
+    q.rss = 20;
+    f.processes.push(q);
+    var order = ranking(a, f, true);
+    std.test.assert_eq(order.get(0), 1i64);
+    std.test.assert(f.processes.get(0).cpu == 7.0, "CPU value preserved");
+    std.test.assert(f.processes.get(1).cpu == 3.0, "CPU value preserved");
+  }
+}

@@ -1,0 +1,45 @@
+/* Identity-aware conversion from OS counters to resource measurements. */
+public module system_monitor {
+  using std;
+
+  /* Parses an integer or reports invalid input. */
+  function number(s: const ref String) i64 throws IError {
+    match s.parse_i64() {
+      Option.Some(n) => {
+        return n;
+      },
+      Option.None => {
+        throw Error(1, "expected an integer");
+      }
+    };
+  }
+
+  /* Converts a valid counter delta into percent of one logical core. */
+  function cpu_percent(before: i64, after: i64, elapsed_ms: i64, ticks_per_second: i64) f64 {
+    if (before < 0 or after < before or elapsed_ms <= 0 or ticks_per_second <= 0) {
+      return -1.0;
+    }
+    return _convert<f64>(after - before) * 100000.0 / _convert<f64>(elapsed_ms) / _convert<f64>(ticks_per_second);
+  }
+
+  /* Derives CPU and memory values while rejecting recycled process identities. */
+  function calculate(frame: ref Frame, previous: ref Frame, ticks_per_second: i64) void throws IError {
+    var a = make_heap_allocator();
+    var index = Map<i64, i64>(a, previous.processes.size() * 2 + 8);
+    for (var i: i64 = 0; i < previous.processes.size(); i = i + 1) {
+      index.insert(previous.processes.get(i).pid, i);
+    }
+    for (var i: i64 = 0; i < frame.processes.size(); i = i + 1) {
+      var p: ref Process = frame.processes.get(i);
+      if (p.rss >= 0 and frame.total_memory > 0) {
+        p.memory = _convert<f64>(p.rss) * 100.0 / _convert<f64>(frame.total_memory);
+      }
+      if (index.contains(p.pid)) {
+        var old: ref Process = previous.processes.get(index.get(p.pid));
+        if (old.start == p.start) {
+          p.cpu = cpu_percent(old.ticks, p.ticks, frame.elapsed - previous.elapsed, ticks_per_second);
+        }
+      }
+    }
+  }
+}

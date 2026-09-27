@@ -1,0 +1,19 @@
+/* Native macOS acceptance checks for the platform ABI and collector. */
+public module system_monitor {
+  using std;
+  /* Groups tests that require native libproc and Mach clocks. */
+  module darwin_tests {
+    /* Checks the SDK-compatible process identity layout and clock frequency. */
+    test_function identity_layout_and_clock_are_valid() {
+      std.test.assert_eq(_sizeof<BsdInfo>(), 136i64);
+      std.test.assert(clock_ticks() > 0, "native CPU frequency");
+    }
+    /* Verifies the native collector can read visible processes and physical memory. */
+    test_function native_collection_returns_samples() {
+      var a = make_heap_allocator();
+      var f = collect(a, 0);
+      std.test.assert(f.total_memory > 0, "physical memory");
+      std.test.assert(f.processes.size() > 0, "visible processes");
+    }
+  }
+}

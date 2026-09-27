@@ -1,0 +1,231 @@
+/* Presents resource tables and dotted histories in the shared terminal window. */
+public module system_monitor {
+  using std;
+
+  /* Describes the compact columns used by each resource table. */
+  function resource_columns(name: const ref String) String {
+    if (name.equals_literal("disk")) {
+      return String("Mount|Used GiB|Free GiB|Use %");
+    }
+    if (name.equals_literal("service")) {
+      return String("Unit|Load|State|Substate");
+    }
+    if (name.equals_literal("network")) {
+      return String("Interface|State|RX KiB/s|TX KiB/s|Errs|Drops");
+    }
+    return String("Sensor|Celsius|Critical|Status");
+  }
+
+  /* Assigns spare horizontal space to the resource identity. */
+  function resource_column_width(name: const ref String, index: i64, width: i64) i64 {
+    if (name.equals_literal("network")) {
+      if (index == 0) {
+        return width - 52;
+      }
+      if (index == 1) {
+        return 7;
+      }
+      if (index < 4) {
+        return 8;
+      }
+      return 5;
+    }
+    if (index == 0) {
+      return width - 43;
+    }
+    return 10;
+  }
+
+  /* Formats a nullable measurement in the requested display units. */
+  function resource_number(row: ref Json, key: String, divisor: f64) String throws IError {
+    var value: ref Json = row.get(key);
+    if (not value.is_number()) {
+      return String("N/A");
+    }
+    return resource_decimal(value.as_f64() / divisor);
+  }
+
+  /* Extracts one table cell without depending on preformatted collector output. */
+  function resource_cell(a: const ref HeapAllocator, name: const ref String, row: ref Json, index: i64) String throws IError {
+    if (name.equals_literal("disk")) {
+      if (index == 0) {
+        return row.get("mount").as_string().clone(a);
+      }
+      if (index == 1) {
+        return resource_number(row, String("used_bytes"), 1073741824.0);
+      }
+      if (index == 2) {
+        return resource_number(row, String("available_bytes"), 1073741824.0);
+      }
+      return resource_number(row, String("used_percent"), 1.0);
+    }
+    var keys = String("sensor|celsius|critical_celsius|status");
+    if (name.equals_literal("service")) {
+      keys = String("unit|load|active|sub");
+    }
+    if (name.equals_literal("network")) {
+      keys = String("interface|state|rx_bytes_per_sec|tx_bytes_per_sec|errors|drops");
+    }
+    var fields = keys.split(a, b'|');
+    var key = fields.get(index).clone(a);
+    if (name.equals_literal("network") and index >= 2) {
+      var divisor = 1.0;
+      if (index < 4) {
+        divisor = 1024.0;
+      }
+      return resource_number(row, key, divisor);
+    }
+    if (name.equals_literal("temperature") and (index == 1 or index == 2)) {
+      return resource_number(row, key, 1.0);
+    }
+    return row.get(key).as_string().clone(a);
+  }
+
+  /* Owns graph history while collectors refresh or change tabs. */
+  class ResourceView {
+    var history: ResourceHistory;
+    /* Creates an empty set of terminal chart measurements. */
+    init(a: const ref HeapAllocator) {
+      this.history = ResourceHistory(a);
+    }
+
+    /* Preserves the selected resource across reordered snapshots. */
+    method locate(a: const ref HeapAllocator, data: ref Resources, terminal: ref Terminal, name: const ref String) void throws IError {
+      for (var i: i64 = 0; i < data.rows.len(); i = i + 1) {
+        if (resource_identity(a, name, data.rows.at(i)).equals(terminal.selected)) {
+          terminal.selected_row = i;
+          break;
+        }
+      }
+      if (terminal.selected_row >= data.rows.len()) {
+        terminal.selected_row = data.rows.len() - 1;
+      }
+      if (terminal.selected_row < 0) {
+        terminal.selected_row = 0;
+      }
+      terminal.selected = String("");
+      if (data.rows.len() > 0) {
+        terminal.selected = resource_identity(a, name, data.rows.at(terminal.selected_row));
+      }
+    }
+
+    /* Builds a bounded table and chart frame, also usable without a live terminal. */
+    method render(a: ref HeapAllocator, data: ref Resources, terminal: ref Terminal, o: ref Options) String throws IError {
+      var out = String("");
+      if (terminal.active) {
+        out.append("\x1b[H\x1b[2J");
+      }
+      terminal.tabs(a, out, o.monitor);
+      var style = TableStyle(terminal.columns, terminal.active);
+      if (terminal.columns < 65 or terminal.rows < 18) {
+        var width = style.width;
+        if (width < 1) {
+          width = 1;
+        }
+        out.append(safe_text(a, String("Enlarge terminal to 65 columns and 18 rows. q quits."), width));
+        return out;
+      }
+      this.locate(a, data, terminal, o.monitor);
+      var title = String("SYSTEM MONITOR / ");
+      title.append(o.monitor);
+      title.append("  |  rows ");
+      title.append(data.rows.len());
+      title.append("  |  sample ");
+      title.append(data.samples);
+      style.color(out, "\x1b[1;36m");
+      out.append(safe_text(a, title, style.width));
+      style.color(out, "\x1b[0m");
+      out.append("\r\n");
+      var hint = String("1-5 tabs  Tab focus  Up/Down select  space pause  q quit");
+      if (terminal.tabs_focused) {
+        hint = String("TABS: Left/Right choose  Down/Enter view  1-5 jump  q quit");
+      }
+      out.append(safe_text(a, hint, style.width));
+      out.append("\r\n");
+      var detail = data.message.clone(a);
+      if (data.rows.len() > 0) {
+        var row: ref Json = data.rows.at(terminal.selected_row);
+        detail = String("Selected ");
+        detail.append(terminal.selected_row + 1);
+        detail.append(" / ");
+        detail.append(data.rows.len());
+        detail.append(" | ");
+        if (o.monitor.equals_literal("disk")) {
+          detail.append(row.get("filesystem").as_string());
+          detail.append(" on ");
+          detail.append(row.get("mount").as_string());
+          detail.append(" | total GiB ");
+          detail.append(resource_number(row, String("total_bytes"), 1073741824.0));
+        } else if (o.monitor.equals_literal("network")) {
+          detail.append("RX/TX total MiB ");
+          detail.append(resource_number(row, String("rx_bytes"), 1048576.0));
+          detail.append(" / ");
+          detail.append(resource_number(row, String("tx_bytes"), 1048576.0));
+        } else if (o.monitor.equals_literal("service")) {
+          detail.append(row.get("description").as_string());
+        } else {
+          detail.append(resource_cell(a, o.monitor, row, 0));
+        }
+      }
+      out.append(safe_text(a, detail, style.width));
+      out.append("\r\n");
+      var height = (terminal.rows - 15) / 3;
+      if (height < 1) {
+        height = 1;
+      }
+      if (height > 8) {
+        height = 8;
+      }
+      var visible = terminal.rows - 15 - height;
+      var headers_text = resource_columns(o.monitor);
+      var headers = headers_text.split(a, b'|');
+      style.rule(out, 0, false);
+      style.edge(out, "│", "|");
+      for (var col: i64 = 0; col < headers.size(); col = col + 1) {
+        style.color(out, "\x1b[1;32m");
+        style.cell(a, out, headers.get(col), resource_column_width(o.monitor, col, style.width), false, false);
+      }
+      out.append("\r\n");
+      style.rule(out, 1, false);
+      var first: i64 = 0;
+      if (terminal.selected_row >= visible) {
+        first = terminal.selected_row - visible + 1;
+      }
+      for (var i: i64 = 0; i < visible; i = i + 1) {
+        var index = first + i;
+        if (data.rows.len() == 0) {
+          var line = String("");
+          if (i < data.lines.size()) {
+            line = data.lines.get(i).clone(a);
+          }
+          style.panel_line(a, out, line, false);
+          continue;
+        }
+        style.edge(out, "│", "|");
+        for (var col: i64 = 0; col < headers.size(); col = col + 1) {
+          var cell = String("");
+          if (index < data.rows.len()) {
+            cell = resource_cell(a, o.monitor, data.rows.at(index), col);
+          }
+          if (cell.equals_literal("failed") or cell.equals_literal("critical")) {
+            style.color(out, "\x1b[1;31m");
+          }
+          style.cell(a, out, cell, resource_column_width(o.monitor, col, style.width), col > 0 and not o.monitor.equals_literal("service"), index == terminal.selected_row and not terminal.tabs_focused);
+        }
+        out.append("\r\n");
+      }
+      style.rule(out, 2, false);
+      this.history.draw(a, out, style, o.monitor, terminal.selected, height, o.interval);
+      return out;
+    }
+
+    /* Refreshes the interactive screen while preserving pause behavior. */
+    method draw(a: ref HeapAllocator, data: ref Resources, terminal: ref Terminal, o: ref Options) void throws IError {
+      if (terminal.paused) {
+        return;
+      }
+      terminal.size(a);
+      output(this.render(a, data, terminal, o));
+    }
+  }
+}

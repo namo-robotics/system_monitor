@@ -1,0 +1,12 @@
+/build/
+*.jsonl
+__pycache__/
+/.ci/
+/dist/
+
+# Compiled binaries and object files, including local builds outside build/.
+system_monitor
+system_monitor_test
+*.exe
+*.o
+*.obj

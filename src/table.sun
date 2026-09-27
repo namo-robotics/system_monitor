@@ -1,0 +1,137 @@
+/* Bounded terminal tables and panels with presentation kept separate from data. */
+public module system_monitor {
+  using std;
+
+  /* Formats fixed-width cells and colored borders for one terminal frame. */
+  class TableStyle {
+    var width: i64;
+    var colored: bool;
+
+    /* Leaves a spare terminal column to avoid automatic line wrapping. */
+    init(columns: i64, colored: bool) {
+      this.width = columns - 1;
+      this.colored = colored;
+    }
+
+    /* Returns content widths shared by table rules, headers, and rows. */
+    method column(index: i64) i64 {
+      if (index == 0) {
+        return 9;
+      }
+      if (index == 1) {
+        return this.width - 47;
+      }
+      if (index == 2) {
+        return 7;
+      }
+      if (index == 3) {
+        return 6;
+      }
+      if (index == 4) {
+        return 9;
+      }
+      return 8;
+    }
+
+    /* Sets an ANSI style only for interactive output. */
+    method color(out: ref String, code: static_ptr<u8>) void {
+      if (this.colored) {
+        out.append(code);
+      }
+    }
+
+    /* Writes a Unicode border in terminals and an ASCII equivalent in pipes. */
+    method edge(out: ref String, glyph: static_ptr<u8>, ascii: static_ptr<u8>) void {
+      this.color(out, "\x1b[0;36m");
+      if (this.colored) {
+        out.append(glyph);
+      } else {
+        out.append(ascii);
+      }
+      this.color(out, "\x1b[0m");
+    }
+
+    /* Draws a top, middle, or bottom rule with optional column junctions. */
+    method rule(out: ref String, position: i64, divided: bool) void {
+      if (position == 0) {
+        this.edge(out, "╭", "+");
+      } else if (position == 1) {
+        this.edge(out, "├", "+");
+      } else {
+        this.edge(out, "╰", "+");
+      }
+      var count: i64 = 1;
+      if (divided) {
+        count = 5;
+      }
+      this.color(out, "\x1b[36m");
+      for (var col: i64 = 0; col < count; col = col + 1) {
+        var size = this.width - 2;
+        if (divided) {
+          size = this.column(col) + 2;
+        }
+        for (var i: i64 = 0; i < size; i = i + 1) {
+          if (this.colored) {
+            out.append("─");
+          } else {
+            out.append("-");
+          }
+        }
+        if (col + 1 < count) {
+          if (position == 0) {
+            this.edge(out, "┬", "+");
+          } else if (position == 1) {
+            this.edge(out, "┼", "+");
+          } else {
+            this.edge(out, "┴", "+");
+          }
+          this.color(out, "\x1b[36m");
+        }
+      }
+      if (position == 0) {
+        this.edge(out, "╮", "+");
+      } else if (position == 1) {
+        this.edge(out, "┤", "+");
+      } else {
+        this.edge(out, "╯", "+");
+      }
+      out.append("\r\n");
+    }
+
+    /* Clips and pads text before applying color, keeping ANSI bytes out of widths. */
+    method cell(a: const ref HeapAllocator, out: ref String, text: const ref String, width: i64, right: bool, selected: bool) void throws IError {
+      var clean = safe_text(a, text, width);
+      if (text.length() > width and width > 0) {
+        clean.set_at(width - 1, b'~');
+      }
+      if (selected) {
+        this.color(out, "\x1b[1;97;44m");
+      }
+      out.append(" ");
+      if (right) {
+        for (var i = clean.length(); i < width; i = i + 1) {
+          out.append(" ");
+        }
+      }
+      out.append(clean);
+      if (not right) {
+        for (var i = clean.length(); i < width; i = i + 1) {
+          out.append(" ");
+        }
+      }
+      out.append(" ");
+      this.color(out, "\x1b[0m");
+      this.edge(out, "│", "|");
+    }
+
+    /* Writes one bounded line inside a full-width history panel. */
+    method panel_line(a: const ref HeapAllocator, out: ref String, text: const ref String, accent: bool) void throws IError {
+      this.edge(out, "│", "|");
+      if (accent) {
+        this.color(out, "\x1b[1;32m");
+      }
+      this.cell(a, out, text, this.width - 4, false, false);
+      out.append("\r\n");
+    }
+  }
+}

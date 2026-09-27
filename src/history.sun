@@ -1,0 +1,50 @@
+/* Bounded retention of display samples, including exited processes. */
+public module system_monitor {
+  using std;
+
+  /* Retains complete frames within a duration and estimated memory budget. */
+  class History {
+    var frames: Vec<Frame>;
+    var bytes: i64 = 0;
+    var limit: i64 = 67108864;
+    var duration: i64 = 600000;
+    var evicted: bool = false;
+    var origin: i64 = -1;
+    var latest: i64 = 0;
+    /* Initializes owned state and resources for this object. */
+    init(alloc: const ref HeapAllocator) {
+      this.frames = Vec<Frame>(alloc, 16);
+    }
+    /* Retains a sample and evicts the oldest frames when limits are exceeded. */
+    method add(frame: Frame) void throws IError {
+      var latest = frame.elapsed;
+      if (this.origin < 0) {
+        this.origin = latest;
+      }
+      this.latest = latest;
+      var cost = frame.cost();
+      while (this.frames.size() > 0) {
+        if (latest - this.frames.get(0).elapsed <= this.duration and this.bytes + cost <= this.limit) {
+          break;
+        }
+        this.bytes = this.bytes - this.frames.get(0).cost();
+        var removed = this.frames.remove(0);
+        this.evicted = true;
+      }
+      // An oversized frame remains available to the current view, but is not retained.
+      if (cost > this.limit) {
+        this.evicted = true;
+        return;
+      }
+      this.bytes = this.bytes + cost;
+      this.frames.push(frame);
+    }
+    /* Returns the elapsed time covered by retained samples. */
+    method window() i64 throws IError {
+      if (this.frames.size() < 2) {
+        return 0;
+      }
+      return this.frames.get(this.frames.size() - 1).elapsed - this.frames.get(0).elapsed;
+    }
+  }
+}

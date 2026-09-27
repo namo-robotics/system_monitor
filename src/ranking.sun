@@ -1,0 +1,38 @@
+/* Deterministic resource ranking that never alters collected samples. */
+public module system_monitor {
+  using std;
+
+  /* Returns stable descending row indices without moving process samples. */
+  function ranking(a: const ref HeapAllocator, f: ref Frame, memory: bool) Vec<i64> throws IError {
+    var order = Vec<i64>(a, f.processes.size());
+    for (var i: i64 = 0; i < f.processes.size(); i = i + 1) {
+      order.push(i);
+    }
+    // Shell sort keeps ordering deterministic without moving owned process records.
+    var gap = order.size() / 2;
+    while (gap > 0) {
+      for (var i = gap; i < order.size(); i = i + 1) {
+        var value: i64 = order.get(i);
+        var j = i;
+        while (j >= gap) {
+          var p: ref Process = f.processes.get(value);
+          var q: ref Process = f.processes.get(order.get(j - gap));
+          var pv: f64 = p.cpu;
+          var qv: f64 = q.cpu;
+          if (memory) {
+            pv = _convert<f64>(p.rss);
+            qv = _convert<f64>(q.rss);
+          }
+          if (pv < qv or (pv == qv and (p.pid > q.pid or (p.pid == q.pid and p.start >= q.start)))) {
+            break;
+          }
+          order.set(j, order.get(j - gap));
+          j = j - gap;
+        }
+        order.set(j, value);
+      }
+      gap = gap / 2;
+    }
+    return order;
+  }
+}

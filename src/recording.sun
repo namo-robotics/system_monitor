@@ -1,0 +1,66 @@
+/* Versioned JSON Lines recording and bounded streaming replay. */
+public module system_monitor {
+  using std;
+
+  /* Describes the recording version, cadence, and measurement units. */
+  function metadata(a: ref HeapAllocator, o: ref Options) String throws IError {
+    var j = create_json_object(a);
+    j.set(String("version"), Json(1i64));
+    j.set(String("type"), Json(String("session")));
+    j.set(String("interval_ms"), Json(o.interval));
+    j.set(String("cpu_unit"), Json(String("percent_one_core")));
+    j.set(String("memory_unit"), Json(String("bytes_rss")));
+    j.set(String("timestamp_unit"), Json(String("unix_ms")));
+    return j.to_string(a);
+  }
+
+  /* Writes one complete JSON line and reports storage failures. */
+  function write_record(file: ref std.io.File, text: ref String) void throws IError {
+    var line = String("");
+    line.append(text);
+    line.append("\n");
+    if (file.write(line) != line.length()) {
+      throw Error(1, "recording write failed");
+    }
+  }
+
+  /* Reads a recording incrementally with bounded line buffering. */
+  class Replay {
+    var file: std.io.File = std.io.File();
+    var pending: String = String("");
+    var eof: bool = false;
+    var last_elapsed: i64 = -1;
+    /* Reads the next complete line, ignoring an interrupted final fragment. */
+    method line(a: ref HeapAllocator) String throws IError {
+      while (true) {
+        match this.pending.find_char(10u8) {
+          Option.Some(n) => {
+            var line = this.pending.substr(a, 0, n);
+            this.pending = this.pending.substr(a, n + 1, this.pending.length() - n - 1);
+            return line;
+          },
+          Option.None => {}
+        };
+        if (this.eof) {
+          this.pending.clear();
+          return String("");
+        }
+        var buffer = ContiguousBuffer<u8>(a, 65536);
+        var n = this.file.read_into(buffer.raw_data(), 65536);
+        if (n < 0) {
+          throw Error(1, "recording read failed");
+        }
+        if (n == 0) {
+          this.eof = true;
+          continue;
+        }
+        var text = String(a, buffer, n);
+        this.pending.append(text);
+        if (this.pending.length() > 67108864) {
+          throw Error(1, "recording line exceeds limit");
+        }
+      }
+      return String("");
+    }
+  }
+}

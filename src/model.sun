@@ -1,0 +1,68 @@
+/* Process samples, bounded history, and display-independent serialization. */
+public module system_monitor {
+  using std;
+
+  /* Owns the identity, metadata, and measurements of one process. */
+  class Process {
+    var pid: i64 = 0;
+    var start: i64 = 0;
+    var ticks: i64 = -1;
+    var rss: i64 = -1;
+    var cpu: f64 = -1.0;
+    var memory: f64 = -1.0;
+    var exe: String = String("");
+    var args: String = String("");
+    var label: String = String("");
+    /* Formats a stable identity from the PID and process start marker. */
+    method id() String {
+      var s = String("");
+      s.append(this.pid);
+      s.append(":");
+      s.append(this.start);
+      return s;
+    }
+  }
+
+  /* Owns all measurements from one sampling instant. */
+  class Frame {
+    var timestamp: i64 = 0;
+    var elapsed: i64 = 0;
+    var total_memory: i64 = 0;
+    var inaccessible: i64 = 0;
+    var processes: Vec<Process>;
+    /* Initializes owned state and resources for this object. */
+    init(alloc: const ref HeapAllocator) {
+      this.processes = Vec<Process>(alloc, 64);
+    }
+    /* Copies display measurements while keeping raw baselines in the live frame. */
+    method copy(a: const ref HeapAllocator) Frame throws IError {
+      var out = Frame(a);
+      out.timestamp = this.timestamp;
+      out.elapsed = this.elapsed;
+      out.total_memory = this.total_memory;
+      out.inaccessible = this.inaccessible;
+      for (var i: i64 = 0; i < this.processes.size(); i = i + 1) {
+        var p: ref Process = this.processes.get(i);
+        var q = Process();
+        q.pid = p.pid;
+        q.start = p.start;
+        q.rss = p.rss;
+        q.cpu = p.cpu;
+        q.memory = p.memory;
+        q.exe = p.exe.clone(a);
+        q.label = p.label.clone(a);
+        out.processes.push(q);
+      }
+      return out;
+    }
+    /* Estimates owned storage conservatively for history budgeting. */
+    method cost() i64 throws IError {
+      var n: i64 = _sizeof<Frame>() + 128 + this.processes.capacity() * _sizeof<Process>();
+      for (var i: i64 = 0; i < this.processes.size(); i = i + 1) {
+        var p: ref Process = this.processes.get(i);
+        n = n + 384 + p.exe.capacity() + p.args.capacity() + p.label.capacity();
+      }
+      return n;
+    }
+  }
+}

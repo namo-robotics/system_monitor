@@ -1,0 +1,205 @@
+/* Behavioral tests for identity-aware ranking and time-scaled dot graphs. */
+public module system_monitor {
+  using std;
+
+  /* Builds a fixture with opposite CPU and memory rankings. */
+  function trend_fixture(a: const ref HeapAllocator) Frame {
+    var frame = Frame(a);
+    for (var pid: i64 = 1; pid <= 7; pid = pid + 1) {
+      var process = Process();
+      process.pid = pid;
+      process.start = 10;
+      process.cpu = _convert<f64>(pid);
+      process.rss = (8 - pid) * 1048576;
+      process.label = String("worker");
+      frame.processes.push(process);
+    }
+    return frame;
+  }
+
+  /* Uses the selected resource to choose exactly the current highest consumers. */
+  test_function trend_selects_top_five_by_resource() {
+    var a = make_heap_allocator();
+    var frame = trend_fixture(a);
+    var graph = TrendGraph(a);
+    graph.select(a, frame, false);
+    std.test.assert_eq(graph.series.size(), 5i64);
+    std.test.assert_eq(graph.series.get(0).pid, 7i64);
+    std.test.assert_eq(graph.series.get(4).pid, 3i64);
+    graph.select(a, frame, true);
+    std.test.assert_eq(graph.series.get(0).pid, 1i64);
+    std.test.assert_eq(graph.series.get(4).pid, 5i64);
+  }
+
+  /* Keeps a process's color through ranking changes and assigns distinct slots. */
+  test_function trend_colors_follow_identity() {
+    var a = make_heap_allocator();
+    var frame = trend_fixture(a);
+    var graph = TrendGraph(a);
+    graph.select(a, frame, false);
+    var color: i64 = graph.series.get(0).color;
+    frame.processes.get(6).cpu = 5.5;
+    graph.select(a, frame, false);
+    std.test.assert_eq(graph.series.get(1).pid, 7i64);
+    std.test.assert_eq(graph.series.get(1).color, color);
+    graph.select(a, frame, true);
+    for (var i: i64 = 0; i < graph.series.size(); i = i + 1) {
+      for (var j = i + 1; j < graph.series.size(); j = j + 1) {
+        std.test.assert(graph.series.get(i).color != graph.series.get(j).color, "unique colors");
+      }
+    }
+  }
+
+  /* Places irregular samples according to time, not their array positions. */
+  test_function trend_uses_elapsed_time_coordinates() {
+    std.test.assert_eq(time_pixel(100, 0, 1000, 101), 10i64);
+    std.test.assert_eq(time_pixel(900, 0, 1000, 101), 90i64);
+    std.test.assert_eq(time_pixel(1000, 1000, 1000, 101), 100i64);
+  }
+
+  /* Encodes plotted dots without the old magnitude-character alphabet. */
+  test_function canvas_encodes_dot_coordinates() {
+    var a = make_heap_allocator();
+    var canvas = DotCanvas(a, 1, 1);
+    canvas.point(0, 0, 0);
+    canvas.point(1, 3, 0);
+    var out = String("");
+    canvas.render_row(out, 0, false);
+    std.test.assert(out.equals_literal("⢁"), "Braille corner dots");
+  }
+
+  /* Breaks traces at unavailable samples instead of joining across gaps. */
+  test_function trend_does_not_connect_missing_samples() {
+    var a = make_heap_allocator();
+    var history = History(a);
+    for (var i: i64 = 0; i < 3; i = i + 1) {
+      var frame = Frame(a);
+      frame.elapsed = i * 1000;
+      var p = Process();
+      p.pid = 7;
+      p.start = 10;
+      p.cpu = 50.0;
+      if (i != 1) {
+        frame.processes.push(p);
+      }
+      history.add(frame);
+    }
+    var p = Process();
+    p.pid = 7;
+    p.start = 10;
+    var item = TrendSeries(a, p);
+    item.color = 0;
+    var graph = TrendGraph(a);
+    graph.duration = 2000;
+    var canvas = DotCanvas(a, 20, 3);
+    graph.trace(canvas, history, item, false, 100.0);
+    std.test.assert_eq(canvas.masks.get(1 * 20 + 10), 0i64);
+    var replacement = TrendSeries(a, p);
+    replacement.start = 11;
+    replacement.color = 1;
+    var empty = DotCanvas(a, 20, 3);
+    graph.trace(empty, history, replacement, false, 100.0);
+    for (var i: i64 = 0; i < 60; i = i + 1) {
+      std.test.assert_eq(empty.masks.get(i), 0i64);
+    }
+  }
+  /* Grows across a fixed span, then scrolls without resetting after eviction. */
+  test_function trend_window_grows_then_scrolls() {
+    var a = make_heap_allocator();
+    var history = History(a);
+    history.duration = 1000;
+    var graph = TrendGraph(a);
+    var first = Frame(a);
+    first.elapsed = 5000;
+    history.add(first);
+    std.test.assert_eq(graph.begin(history), 5000i64);
+    std.test.assert_eq(time_pixel(5000, graph.begin(history), graph.begin(history) + graph.duration, 121), 0i64);
+    var middle = Frame(a);
+    middle.elapsed = 35000;
+    history.add(middle);
+    std.test.assert_eq(history.frames.size(), 1i64);
+    std.test.assert_eq(graph.begin(history), 5000i64);
+    std.test.assert_eq(time_pixel(35000, graph.begin(history), graph.begin(history) + graph.duration, 121), 60i64);
+    var full = Frame(a);
+    full.elapsed = 65000;
+    history.add(full);
+    std.test.assert_eq(graph.begin(history), 5000i64);
+    var later = Frame(a);
+    later.elapsed = 75000;
+    history.add(later);
+    std.test.assert_eq(graph.begin(history), 15000i64);
+    std.test.assert_eq(time_pixel(75000, graph.begin(history), graph.begin(history) + graph.duration, 121), 120i64);
+  }
+
+  /* Leaves future columns blank and excludes peaks outside the visible span. */
+  test_function trend_raster_respects_fixed_window() {
+    var a = make_heap_allocator();
+    var history = History(a);
+    var graph = TrendGraph(a);
+    for (var i: i64 = 0; i < 2; i = i + 1) {
+      var frame = trend_fixture(a);
+      frame.elapsed = i * 30000;
+      graph.select(a, frame, false);
+      history.add(frame);
+    }
+    var canvas = DotCanvas(a, 61, 1);
+    graph.trace(canvas, history, graph.series.get(0), false, 7.0);
+    std.test.assert(canvas.masks.get(0) != 0, "first sample at left");
+    std.test.assert(canvas.masks.get(30) != 0, "latest sample halfway across");
+    for (var i: i64 = 31; i < 61; i = i + 1) {
+      std.test.assert_eq(canvas.masks.get(i), 0i64);
+    }
+    history.frames.get(0).processes.get(6).cpu = 999.0;
+    var later = trend_fixture(a);
+    later.elapsed = 90000;
+    history.add(later);
+    std.test.assert_eq(graph.scale(history, false), 7.0);
+  }
+  /* Fills every dot below a sample and keeps shorter areas in front in either order. */
+  test_function filled_columns_overlap_by_height() {
+    var a = make_heap_allocator();
+    for (var order: i64 = 0; order < 2; order = order + 1) {
+      var canvas = DotCanvas(a, 2, 3);
+      if (order == 0) {
+        canvas.column(0, 0, 0);
+        canvas.column(0, 8, 1);
+      } else {
+        canvas.column(0, 8, 1);
+        canvas.column(0, 0, 0);
+      }
+      std.test.assert_eq(canvas.masks.get(0), 71i64);
+      std.test.assert_eq(canvas.masks.get(2), 71i64);
+      std.test.assert_eq(canvas.masks.get(4), 71i64);
+      std.test.assert_eq(canvas.owners.get(0), 0i64);
+      std.test.assert_eq(canvas.owners.get(4), 1i64);
+      canvas.column(2, 8, 0);
+      canvas.column(2, 0, 1);
+      std.test.assert_eq(canvas.owners.get(1), 1i64);
+      std.test.assert_eq(canvas.owners.get(5), 0i64);
+    }
+  }
+  /* Handles split arrow sequences without treating their bytes as shortcuts. */
+  test_function terminal_arrows_move_selection() {
+    var a = make_heap_allocator();
+    var terminal = Terminal(a, false);
+    var options = Options();
+    terminal.apply_key(27u8, options);
+    terminal.apply_key(b'[', options);
+    std.test.assert_eq(terminal.selected_row, 0i64);
+    terminal.apply_key(b'B', options);
+    std.test.assert_eq(terminal.selected_row, 1i64);
+    terminal.apply_key(27u8, options);
+    terminal.apply_key(b'O', options);
+    terminal.apply_key(b'A', options);
+    std.test.assert_eq(terminal.selected_row, 0i64);
+    terminal.move_selection(false);
+    std.test.assert_eq(terminal.selected_row, 0i64);
+    terminal.apply_key(27u8, options);
+    terminal.apply_key(b'[', options);
+    terminal.apply_key(b'5', options);
+    terminal.apply_key(b'~', options);
+    std.test.assert_eq(options.top, 10i64);
+    terminal.apply_key(b'j', options);
+    std.test.assert_eq(terminal.selected_row, 0i64);
+  }
+}

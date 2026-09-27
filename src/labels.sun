@@ -1,0 +1,87 @@
+/* Resolves explicit labels once and keeps them bound to process identities. */
+public module system_monitor {
+  using std;
+
+  /* Applies explicit names only to identities observed in the first sample. */
+  class Labels {
+    var bound: bool = false;
+    var document: Json = Json();
+    var identities: Map<i64, i64>;
+    /* Initializes owned state and resources for this object. */
+    init(a: const ref HeapAllocator) {
+      this.identities = Map<i64, i64>(a, 16);
+    }
+    /* Applies configured labels without carrying them across PID reuse. */
+    method apply(a: ref HeapAllocator, f: ref Frame) void throws IError {
+      if (not this.document.is_object()) {
+        return;
+      }
+      for (var i: i64 = 0; i < f.processes.size(); i = i + 1) {
+        var p: ref Process = f.processes.get(i);
+        var key = String("");
+        key.append(p.pid);
+        for (var k: i64 = 0; k < this.document.len(); k = k + 1) {
+          if (this.document.key_at(k).equals(key)) {
+            if (not this.bound and not this.identities.contains(p.pid)) {
+              this.identities.insert(p.pid, p.start);
+            }
+            if (this.identities.contains(p.pid) and this.identities.get(p.pid) == p.start) {
+              p.label = this.document.value_at(k).as_string().clone(a);
+            }
+            break;
+          }
+        }
+      }
+      this.bound = true;
+    }
+  }
+
+  /* Derives a process label from its executable and ROS remapping arguments. */
+  function label_process(alloc: const ref HeapAllocator, p: ref Process) void throws IError {
+    var parts = p.exe.split(alloc, "/");
+    p.label = parts.get(parts.size() - 1).clone(alloc);
+    if (p.label.is_empty()) {
+      p.label = String("process");
+    }
+    var args = p.args.split_nonempty(alloc, 0u8);
+    var node = String("");
+    var ns = String("");
+    var ros = false;
+    for (var i: i64 = 0; i < args.size(); i = i + 1) {
+      var arg: ref String = args.get(i);
+      if (arg.equals_literal("--ros-args")) {
+        ros = true;
+        continue;
+      }
+      if (arg.equals_literal("--")) {
+        ros = false;
+      }
+      if (not ros) {
+        continue;
+      }
+      if (arg.starts_with("__node:=")) {
+        node = arg.substr(alloc, 8, arg.length() - 8);
+      }
+      if (arg.starts_with("__name:=")) {
+        node = arg.substr(alloc, 8, arg.length() - 8);
+      }
+      if (arg.starts_with("__ns:=")) {
+        ns = arg.substr(alloc, 6, arg.length() - 6);
+      }
+    }
+    if (not node.is_empty()) {
+      p.label = String("");
+      if (not ns.starts_with("/")) {
+        p.label.append("/");
+      }
+      p.label.append(ns);
+      if (not p.label.ends_with("/")) {
+        p.label.append("/");
+      }
+      p.label.append(node);
+    }
+    if (p.exe.contains("component_container")) {
+      p.label.append(" [shared container]");
+    }
+  }
+}

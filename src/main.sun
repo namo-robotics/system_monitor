@@ -1,0 +1,17 @@
+/* Command entry point for the Sun process monitor. */
+using std;
+/* Starts the monitor and reports user-facing failures. */
+function main(argc: i32, argv: raw_ptr<raw_ptr<u8>>) i32 {
+  return system_monitor.entry(argc, argv);
+}
+
+manifest {
+  source_files: ["model.sun", "history.sun", "metrics.sun", "codec.sun", "ranking.sun",
+    "options.sun", "resources.sun", "resource-history.sun", "resource-terminal.sun", "labels.sun", "recording.sun", "posix.sun", "control.sun", "charts.sun", "terminal.sun", "table.sun", "trend.sun", "app.sun", "../build/version.sun", "web-disabled.sun"]
+  target: {
+    linux: { source_files: ["linux.sun"] test_files: ["../tests/linux.sun"] }
+    macos: { source_files: ["darwin.sun"] test_files: ["../tests/darwin.sun"] }
+  }
+  libraries: ["stdlib.moon"]
+  test_files: ["../tests/resource-terminal.sun", "../tests/terminal-tabs.sun", "../tests/resources.sun", "../tests/core.sun", "../tests/trend.sun", "../tests/control.sun"]
+}

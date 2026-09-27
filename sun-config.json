@@ -1,0 +1,48 @@
+{
+  "root": true,
+  "sun_path": [
+    "build"
+  ],
+  "path_variables": {
+    "MUSL_LIB": ".ci/musl/x86_64-linux-musl-cross/x86_64-linux-musl/lib"
+  },
+  "dependencies": {
+    "SUN_SERVE": {
+      "target": {
+        "x86_64-linux-gnu": {
+          "git": "https://github.com/namo-robotics/sun_serve.git",
+          "version": "a90791b818f70cf612fac70ece0582c5a6468cc2",
+          "path": "src/sun_serve.sun"
+        }
+      }
+    }
+  },
+  "entrypoints": [
+    {
+      "path": "build/main.sun",
+      "type": "binary",
+      "output_name": "build/system_monitor",
+      "test_binary_name": "build/system_monitor_test",
+      "name": "system_monitor"
+    },
+    {
+      "path": "tests/acceptance.sun",
+      "type": "binary",
+      "output_name": "build/acceptance"
+    }
+  ],
+  "packages": [
+    {
+      "name": "system_monitor",
+      "entrypoints": [
+        "system_monitor"
+      ],
+      "resources": [
+        {
+          "path": "assets/dashboard.html",
+          "destination": "share/system_monitor/dashboard.html"
+        }
+      ]
+    }
+  ]
+}

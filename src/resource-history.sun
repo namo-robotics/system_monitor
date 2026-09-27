@@ -1,0 +1,342 @@
+/* Retains compact measurements and draws dotted resource histories. */
+public module system_monitor {
+  using std;
+
+  /* Formats signed measurements without using negative values as missing markers. */
+  function resource_decimal(value: f64) String {
+    if (value >= 0.0) {
+      return decimal(value);
+    }
+    var text = String("-");
+    text.append(decimal(-value));
+    return text;
+  }
+
+  /* Identifies a row across reordering and sampling. */
+  function resource_identity(a: const ref HeapAllocator, name: const ref String, row: ref Json) String throws IError {
+    if (name.equals_literal("disk")) {
+      var id = row.get("filesystem").as_string().clone(a);
+      id.append("\n");
+      id.append(row.get("mount").as_string());
+      return id;
+    }
+    if (name.equals_literal("service")) {
+      return row.get("unit").as_string().clone(a);
+    }
+    if (name.equals_literal("network")) {
+      return row.get("interface").as_string().clone(a);
+    }
+    return row.get("sensor").as_string().clone(a);
+  }
+
+  /* Holds two optional measurements without conflating missing data with zero or cold readings. */
+  class ResourceReading {
+    var id: String = String("");
+    var first: f64 = 0.0;
+    var second: f64 = 0.0;
+    var first_valid: bool = false;
+    var second_valid: bool = false;
+
+    /* Copies a nullable JSON measurement into the selected series. */
+    method set(value: ref Json, second: bool, divisor: f64) void throws IError {
+      if (not value.is_number()) {
+        return;
+      }
+      if (second) {
+        this.second = value.as_f64() / divisor;
+        this.second_valid = true;
+      } else {
+        this.first = value.as_f64() / divisor;
+        this.first_valid = true;
+      }
+    }
+  }
+
+  /* Stores only chart values and identities, excluding full table descriptions. */
+  class ResourceFrame {
+    var monitor: String;
+    var elapsed: i64;
+    var readings: Vec<ResourceReading>;
+    var bytes: i64 = 128;
+    /* Creates an empty timestamped frame for one monitor. */
+    init(a: const ref HeapAllocator, name: const ref String, elapsed: i64) {
+      this.monitor = name.clone(a);
+      this.elapsed = elapsed;
+      this.readings = Vec<ResourceReading>(a, 16);
+    }
+    /* Accounts for identity storage before retaining a measurement. */
+    method add(reading: ResourceReading) void throws IError {
+      this.bytes = this.bytes + 96 + reading.id.length();
+      this.readings.push(reading);
+    }
+  }
+
+  /* Converts a collector snapshot to values suitable for resource history graphs. */
+  function resource_frame(a: ref HeapAllocator, data: ref Resources, name: const ref String, elapsed: i64) ResourceFrame throws IError {
+    var frame = ResourceFrame(a, name, elapsed);
+    if (name.equals_literal("service")) {
+      var totals = ResourceReading();
+      totals.id = String("services");
+      totals.first_valid = data.message.is_empty();
+      totals.second_valid = totals.first_valid;
+      for (var i: i64 = 0; i < data.rows.len(); i = i + 1) {
+        var row: ref Json = data.rows.at(i);
+        if (row.get("active").as_string().equals_literal("active")) {
+          totals.first = totals.first + 1.0;
+        }
+        if (row.get("active").as_string().equals_literal("failed")) {
+          totals.second = totals.second + 1.0;
+        }
+      }
+      frame.add(totals);
+      return frame;
+    }
+    for (var i: i64 = 0; i < data.rows.len(); i = i + 1) {
+      var row: ref Json = data.rows.at(i);
+      var reading = ResourceReading();
+      reading.id = resource_identity(a, name, row);
+      if (name.equals_literal("disk")) {
+        reading.set(row.get("used_percent"), false, 1.0);
+      } else if (name.equals_literal("network")) {
+        reading.set(row.get("rx_bytes_per_sec"), false, 1024.0);
+        reading.set(row.get("tx_bytes_per_sec"), true, 1024.0);
+      } else {
+        reading.set(row.get("celsius"), false, 1.0);
+        reading.set(row.get("critical_celsius"), true, 1.0);
+      }
+      frame.add(reading);
+    }
+    return frame;
+  }
+
+  /* Maps signed values to the graph's vertical dot coordinates. */
+  function resource_y(value: f64, low: f64, high: f64, height: i64) i64 {
+    var ratio = (value - low) / (high - low);
+    if (ratio < 0.0) {
+      ratio = 0.0;
+    }
+    if (ratio > 1.0) {
+      ratio = 1.0;
+    }
+    return height * 4 - 1 - _convert<i64>(ratio * _convert<f64>(height * 4 - 1));
+  }
+
+  /* Connects measured points with fine dots, leaving the area underneath unfilled. */
+  function resource_stroke(canvas: ref DotCanvas, x0: i64, y0: i64, x1: i64, y1: i64, owner: i64) void throws IError {
+    var steps = x1 - x0;
+    var vertical = y1 - y0;
+    if (vertical < 0) {
+      vertical = -vertical;
+    }
+    if (vertical > steps) {
+      steps = vertical;
+    }
+    if (steps < 1) {
+      canvas.point(x1, y1, owner);
+      return;
+    }
+    for (var i: i64 = 0; i <= steps; i = i + 1) {
+      canvas.point(x0 + (x1 - x0) * i / steps, y0 + (y1 - y0) * i / steps, owner);
+    }
+  }
+
+  /* Keeps chart history across tab changes within time, frame-count and memory limits. */
+  class ResourceHistory {
+    var frames: Vec<ResourceFrame>;
+    var bytes: i64 = 0;
+    var limit: i64 = 16777216;
+    var duration: i64 = 60000;
+    var latest: i64 = 0;
+    var evicted: bool = false;
+    /* Creates empty shared history for resource tabs. */
+    init(a: const ref HeapAllocator) {
+      this.frames = Vec<ResourceFrame>(a, 16);
+    }
+    /* Retains compact readings and evicts the oldest frames first. */
+    method add(frame: ResourceFrame) void throws IError {
+      this.latest = frame.elapsed;
+      while (this.frames.size() > 0) {
+        if (this.latest - this.frames.get(0).elapsed <= this.duration and this.bytes + frame.bytes <= this.limit and this.frames.size() < 2048) {
+          break;
+        }
+        this.bytes = this.bytes - this.frames.get(0).bytes;
+        var removed = this.frames.remove(0);
+        this.evicted = true;
+      }
+      if (frame.bytes > this.limit) {
+        this.evicted = true;
+        return;
+      }
+      this.bytes = this.bytes + frame.bytes;
+      this.frames.push(frame);
+    }
+    /* Anchors startup at the first retained sample before scrolling the time window. */
+    method begin(name: const ref String) i64 throws IError {
+      var begin = this.latest - this.duration;
+      for (var i: i64 = 0; i < this.frames.size(); i = i + 1) {
+        if (this.frames.get(i).monitor.equals(name)) {
+          if (begin < this.frames.get(i).elapsed) {
+            begin = this.frames.get(i).elapsed;
+          }
+          return begin;
+        }
+      }
+      return this.latest;
+    }
+    /* Traces one series, breaking at missing samples, tab gaps and long delays. */
+    method trace(canvas: ref DotCanvas, name: const ref String, id: const ref String, second: bool, begin: i64, low: f64, high: f64, interval: i64) void throws IError {
+      var connected = false;
+      var old_x: i64 = 0;
+      var old_y: i64 = 0;
+      var old_time: i64 = 0;
+      var owner: i64 = 0;
+      if (second) {
+        owner = 1;
+      }
+      for (var i: i64 = 0; i < this.frames.size(); i = i + 1) {
+        var frame: ref ResourceFrame = this.frames.get(i);
+        if (not frame.monitor.equals(name) or frame.elapsed < begin) {
+          connected = false;
+          continue;
+        }
+        var found = false;
+        for (var j: i64 = 0; j < frame.readings.size(); j = j + 1) {
+          var reading: ref ResourceReading = frame.readings.get(j);
+          if (not reading.id.equals(id)) {
+            continue;
+          }
+          var valid = reading.first_valid;
+          var value = reading.first;
+          if (second) {
+            valid = reading.second_valid;
+            value = reading.second;
+          }
+          if (not valid) {
+            break;
+          }
+          found = true;
+          var x = time_pixel(frame.elapsed, begin, begin + this.duration, canvas.width * 2);
+          var y = resource_y(value, low, high, canvas.height);
+          if (connected and frame.elapsed - old_time <= interval * 3) {
+            resource_stroke(canvas, old_x, old_y, x, y, owner);
+          } else {
+            canvas.point(x, y, owner);
+          }
+          connected = true;
+          old_x = x;
+          old_y = y;
+          old_time = frame.elapsed;
+          break;
+        }
+        if (not found) {
+          connected = false;
+        }
+      }
+    }
+    /* Draws a bordered Braille-dot history with a shared numeric scale and legend. */
+    method draw(a: const ref HeapAllocator, out: ref String, style: ref TableStyle, name: const ref String, selected: const ref String, height: i64, interval: i64) void throws IError {
+      var id = selected.clone(a);
+      var title = String("DISK USAGE HISTORY (%)");
+      var legends = String("Used capacity| ");
+      if (name.equals_literal("service")) {
+        title = String("SERVICE STATE HISTORY (count)");
+        legends = String("Active services|Failed services");
+        id = String("services");
+      }
+      if (name.equals_literal("network")) {
+        title = String("NETWORK HISTORY (KiB/s)");
+        legends = String("Receive|Send");
+      }
+      if (name.equals_literal("temperature")) {
+        title = String("TEMPERATURE HISTORY (C)");
+        legends = String("Sensor|Critical threshold");
+      }
+      var low: f64 = 0.0;
+      var high: f64 = 1.0;
+      var measured = false;
+      if (name.equals_literal("disk")) {
+        high = 100.0;
+      }
+      var begin = this.begin(name);
+      for (var i: i64 = 0; i < this.frames.size(); i = i + 1) {
+        var frame: ref ResourceFrame = this.frames.get(i);
+        if (not frame.monitor.equals(name) or frame.elapsed < begin) {
+          continue;
+        }
+        for (var j: i64 = 0; j < frame.readings.size(); j = j + 1) {
+          var reading: ref ResourceReading = frame.readings.get(j);
+          if (not reading.id.equals(id)) {
+            continue;
+          }
+          if (reading.first_valid) {
+            measured = true;
+            if (reading.first < low) {
+              low = reading.first;
+            }
+            if (reading.first > high) {
+              high = reading.first;
+            }
+          }
+          if (reading.second_valid) {
+            measured = true;
+            if (reading.second < low) {
+              low = reading.second;
+            }
+            if (reading.second > high) {
+              high = reading.second;
+            }
+          }
+        }
+      }
+      if (not measured) {
+        title.append(" | waiting for data");
+      }
+      var canvas = DotCanvas(a, style.width - 13, height);
+      this.trace(canvas, name, id, true, begin, low, high, interval);
+      this.trace(canvas, name, id, false, begin, low, high, interval);
+      style.rule(out, 0, false);
+      style.panel_line(a, out, title, true);
+      style.rule(out, 1, false);
+      for (var row: i64 = 0; row < height; row = row + 1) {
+        var label = String("");
+        if (row == 0) {
+          label = resource_decimal(high);
+        } else if (row == height - 1) {
+          label = resource_decimal(low);
+        }
+        style.edge(out, "│", "|");
+        out.append(" ");
+        out.append(padded(safe_text(a, label, 8), 8));
+        out.append(" ");
+        canvas.render_row(out, row, style.colored);
+        out.append(" ");
+        style.edge(out, "│", "|");
+        out.append("\r\n");
+      }
+      var axis = String("elapsed +");
+      axis.append(decimal(_convert<f64>(begin) / 1000.0));
+      axis.append("s to +");
+      axis.append(decimal(_convert<f64>(begin + this.duration) / 1000.0));
+      axis.append("s");
+      if (this.evicted) {
+        axis.append(" | history trimmed");
+      }
+      style.panel_line(a, out, axis, false);
+      var parts = legends.split(a, b'|');
+      style.edge(out, "│", "|");
+      var first_width = (style.width - 2) / 2;
+      for (var i: i64 = 0; i < 2; i = i + 1) {
+        var width = first_width;
+        if (i == 1) {
+          width = style.width - 2 - first_width;
+        }
+        style.color(out, trend_color(i));
+        out.append(padded(safe_text(a, parts.get(i), width), width));
+        style.color(out, "\x1b[0m");
+      }
+      style.edge(out, "│", "|");
+      out.append("\r\n");
+      style.rule(out, 2, false);
+    }
+  }
+}
