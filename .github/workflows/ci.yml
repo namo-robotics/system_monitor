@@ -30,7 +30,7 @@ jobs:
           - runner: ubuntu-24.04
             target: linux-arm64
             triple: aarch64-linux-gnu
-          - runner: macos-14
+          - runner: macos-26
             target: macos-arm64
             triple: arm64-apple-darwin
     defaults:
@@ -56,7 +56,7 @@ jobs:
 
       - name: Install macOS compiler runtime dependencies
         if: runner.os == 'macOS'
-        run: brew install llvm libarchive
+        run: brew install llvm@20 libarchive
 
       - name: Install latest Sun compiler and matching standard libraries
         run: scripts/ci-toolchain.sh
@@ -101,7 +101,7 @@ jobs:
             target: linux-x86_64
           - runner: ubuntu-24.04-arm
             target: linux-arm64
-          - runner: macos-14
+          - runner: macos-26
             target: macos-arm64
     defaults:
       run:
