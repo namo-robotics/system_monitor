@@ -1,7 +1,19 @@
-# System Monitor
+<h1 align="center">System Monitor</h1>
+
+<p align="center">
+  <a href="https://github.com/namo-robotics/system_monitor/actions/workflows/ci.yml">
+    <img src="https://github.com/namo-robotics/system_monitor/actions/workflows/ci.yml/badge.svg" alt="CI status">
+  </a>
+</p>
 
 A terminal and web system monitor written in [Sun](https://github.com/namo-robotics/sun),
 expanded from [namo-robotics/process_monitor](https://github.com/namo-robotics/process_monitor).
+
+<p align="center">
+  <img src="assets/screenshot.png" alt="System Monitor terminal view" width="100%">
+  <br>
+  <img src="assets/dashboard_screenshot.png" alt="System Monitor web dashboard" width="100%">
+</p>
 
 Start `system_monitor` to open **Processes**, with horizontal tabs for all five
 monitors in the same terminal window. Press **1–5** to switch directly and **q**
