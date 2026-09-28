@@ -41,12 +41,12 @@ if [[ "$(id -u)" == 0 ]]; then
   scope=system
   prefix="${PREFIX:-/usr/local}"
   units="${UNIT_DIR:-/etc/systemd/system}"
-  systemctl_args=()
+  systemctl_cmd=(systemctl)
 else
   scope=user
   prefix="${PREFIX:-$HOME/.local}"
   units="${UNIT_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user}"
-  systemctl_args=(--user)
+  systemctl_cmd=(systemctl --user)
 fi
 unit="$units/system_monitor.service"
 
@@ -55,11 +55,11 @@ unit="$units/system_monitor.service"
 if [[ "$uninstall" == 1 ]]; then
   if [[ -f "$unit" ]]; then
     if command -v systemctl >/dev/null; then
-      systemctl "${systemctl_args[@]}" disable --now system_monitor.service || true
+      "${systemctl_cmd[@]}" disable --now system_monitor.service || true
     fi
     rm -f "$unit"
     if command -v systemctl >/dev/null; then
-      systemctl "${systemctl_args[@]}" daemon-reload || true
+      "${systemctl_cmd[@]}" daemon-reload || true
     fi
     echo "Removed daemon: $unit"
   fi
@@ -218,8 +218,8 @@ RestartSec=5
 [Install]
 WantedBy=$wanted_by
 EOF
-  systemctl "${systemctl_args[@]}" daemon-reload
-  systemctl "${systemctl_args[@]}" enable --now system_monitor.service
+  "${systemctl_cmd[@]}" daemon-reload
+  "${systemctl_cmd[@]}" enable --now system_monitor.service
   if [[ "$scope" == system ]]; then
     printf 'Daemon enabled for all users: http://127.0.0.1:%s\nStatus: systemctl status system_monitor\n' "$port"
   else

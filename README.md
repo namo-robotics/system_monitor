@@ -6,8 +6,7 @@
   </a>
 </p>
 
-A terminal and web system monitor written in [Sun](https://github.com/namo-robotics/sun),
-expanded from [namo-robotics/process_monitor](https://github.com/namo-robotics/process_monitor).
+A terminal and web system monitor written in [Sun](https://github.com/namo-robotics/sun).
 
 <p align="center">
   <img src="assets/screenshot.png" alt="System Monitor terminal view" width="100%">
@@ -23,6 +22,9 @@ install under `/usr/local` for all users:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/namo-robotics/system_monitor/main/scripts/install.sh | bash
+```
+
+```sh
 curl -fsSL https://raw.githubusercontent.com/namo-robotics/system_monitor/main/scripts/install.sh | sudo bash
 ```
 
@@ -166,7 +168,7 @@ collecting while another tab is selected.
 
 - **Linux x86_64 / ARM64:** process data from procfs, disk capacity via `df`,
   services via `systemctl`, network data from procfs/sysfs, temperatures from sysfs.
-- **Apple Silicon macOS:** original process support, disk capacity via `df`,
+- **Apple Silicon macOS:** process support, disk capacity via `df`,
   current-domain launchd jobs via `launchctl`, and network totals via `netstat`.
   Network rates and temperature sensors are currently Linux-only.
 - Missing utilities, service managers, permissions or sensors produce an
@@ -174,7 +176,7 @@ collecting while another tab is selected.
   read-only and lists loaded services, not every installed unit file.
 
 The new views have been exercised on Linux x86_64. Native ARM64 and macOS
-validation runs in the inherited CI matrix; it has not been performed locally.
+validation runs in the CI matrix; it has not been performed locally.
 
 ## Tests
 
@@ -183,7 +185,7 @@ SUN_BIN="$PWD/.ci/toolchain/bin/sun" scripts/test.sh
 ```
 
 Includes collector calculations, CLI validation, all five terminal tabs,
-arrow navigation and focus, and the original process, recording, terminal and HTTP checks.
+arrow navigation and focus, and the process, recording, terminal and HTTP checks.
 
 The dashboard DOM tests cover tables, charts, filtering, sorting, missing data,
 and bounded network history. They require Node.js and the test-only `jsdom`
@@ -194,5 +196,5 @@ npm install --prefix /tmp/system-monitor-dom jsdom@29.1.1
 NODE_PATH=/tmp/system-monitor-dom/node_modules node tests/dashboard.cjs
 ```
 
-[Build and process-monitor details](docs/GUIDE.md). Distributed under the
-[MIT license](LICENSE), preserving the original project's attribution.
+[Build and usage details](docs/GUIDE.md). Distributed under the
+[MIT license](LICENSE).
