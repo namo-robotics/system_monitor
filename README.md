@@ -15,6 +15,51 @@ expanded from [namo-robotics/process_monitor](https://github.com/namo-robotics/p
   <img src="assets/dashboard_screenshot.png" alt="System Monitor web dashboard" width="100%">
 </p>
 
+## Install
+
+The installer supports Linux x86_64/ARM64 and Apple Silicon macOS. Run it as
+yourself to install under `~/.local` for your user only, or with `sudo` to
+install under `/usr/local` for all users:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/namo-robotics/system_monitor/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/namo-robotics/system_monitor/main/scripts/install.sh | sudo bash
+```
+
+`PREFIX` overrides the install root. To build from source instead, see
+[Build and run](#build-and-run).
+
+### Uninstall
+
+The same script removes everything it installed in that scope, including the
+daemon if one was set up. Run it as yourself or with `sudo` to match the install:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/namo-robotics/system_monitor/main/scripts/install.sh | bash -s -- --uninstall
+```
+
+### Run as a daemon
+
+On Linux x86_64, where the web dashboard is built, the installer asks whether
+to also run the dashboard as a systemd service, and on which loopback port
+(default 29583). The default answer is no, and without a terminal it never
+asks. A user install starts the service with your login session; a `sudo`
+install starts it at boot under an unprivileged dynamic account. Either way the
+dashboard listens only on `127.0.0.1`, so use SSH port forwarding for remote
+access.
+
+For unattended installs, `DAEMON=0|1` and `PORT` answer the questions ahead of
+time:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/namo-robotics/system_monitor/main/scripts/install.sh | DAEMON=1 PORT=29583 bash
+```
+
+A per-user service stops when you log out unless you run
+`loginctl enable-linger "$USER"` once.
+
+## Usage
+
 Start `system_monitor` to open **Processes**, with horizontal tabs for all five
 monitors in the same terminal window. Press **1–5** to switch directly and **q**
 to quit.
@@ -91,11 +136,11 @@ The web dashboard is available on Linux x86_64, with horizontal tabs for all fiv
 It opens on **Processes**; select another tab to switch views:
 
 ```sh
-build/system_monitor --ui both  # http://127.0.0.1:8080
+build/system_monitor --ui both  # http://127.0.0.1:29583
 ```
 
 The tabs are Processes, Disks, Services, Network, and Temperature. Direct links
-such as `http://127.0.0.1:8080/#network` open a specific tab. Each browser selects
+such as `http://127.0.0.1:29583/#network` open a specific tab. Each browser selects
 its own view independently of the terminal. The four resource tabs show live
 host data, including when process recordings are being replayed. Pause affects
 only the display; data collection continues. Recording/replay and labels apply
@@ -147,15 +192,6 @@ package; the dashboard itself has no external dependencies:
 ```sh
 npm install --prefix /tmp/system-monitor-dom jsdom@29.1.1
 NODE_PATH=/tmp/system-monitor-dom/node_modules node tests/dashboard.cjs
-```
-
-## Install a published release
-
-After this repository has a release, its installer supports Linux x86_64/ARM64
-and Apple Silicon macOS:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/namo-robotics/system_monitor/main/scripts/install.sh | bash
 ```
 
 [Build and process-monitor details](docs/GUIDE.md). Distributed under the

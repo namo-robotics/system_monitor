@@ -110,7 +110,21 @@ Keep `bin/` and `share/` together when moving an extracted package. CI runs the
 extracted executable from outside the checkout and verifies that its HTTP server
 returns the packaged HTML before uploading it. The installer preserves the full
 package under `$PREFIX/lib/system_monitor` and links `$PREFIX/bin/system_monitor`
-to it; `PREFIX` defaults to `~/.local`.
+to it. As a regular user `PREFIX` defaults to `~/.local`; as root it defaults to
+`/usr/local` so the install serves every user. On Linux x86_64, where the web
+dashboard is built, the installer asks on the terminal whether to also write a
+systemd unit that runs `--ui web` and enable it immediately, then which port to
+use. A user install writes a user unit started with that login session; a root
+install writes a system unit under `/etc/systemd/system` that starts at boot
+with `DynamicUser=yes`, so the server never runs as root. The answer defaults
+to no, a piped install reads the answers from `/dev/tty`, and with no terminal
+it never asks. `DAEMON=0|1` and `PORT` in the environment answer without a
+prompt, and `UNIT_DIR` overrides the unit location. `--uninstall` stops and
+removes the daemon unit, the executable link and every retained package in the
+same scope, and touches nothing else. `tests/install-script.sh` exercises the
+installer with stubbed downloads, a stubbed `systemctl` and a stubbed `id` for
+the root scope, driving the prompt through a pseudo-terminal where util-linux
+`script` is available.
 
 The package workflow has not yet completed a run on GitHub. The native support status above remains
 provisional until those jobs and the remaining manual checks pass.
@@ -181,7 +195,7 @@ Process history receives the remaining budget. Recordings remain process-only.
 
 ```text
 --ui terminal|web|both default: terminal; web hosting requires Linux x86_64
---port PORT            localhost web port; default: 8080; range: 1..65535
+--port PORT            localhost web port; default: 29583; range: 1..65535
 --top N|all             default: 10
 --sort cpu|memory       default: cpu
 --interval SECONDS     default: 1; range: 0.1 through 604800
@@ -204,7 +218,7 @@ build/system_monitor --ui web --port 8081
 build/system_monitor --ui web --replay session.jsonl
 ```
 
-Open `http://127.0.0.1:8080` (or the selected port). The server binds only to
+Open `http://127.0.0.1:29583` (or the selected port). The server binds only to
 loopback; remote access can use SSH port forwarding. `sun_serve.moon` hosts the HTML resource, which contains the CSS and JavaScript
 and needs no external services. The server loads it relative to the actual
 executable, including when launched through the installer’s symlink from another

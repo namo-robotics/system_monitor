@@ -44,6 +44,9 @@ jobs:
       - name: Check build script archive naming
         run: bash tests/build-script.sh
 
+      - name: Check install script and daemon option
+        run: bash tests/install-script.sh
+
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
         run: |

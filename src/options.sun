@@ -6,7 +6,7 @@ public module system_monitor {
   class Options {
     var monitor: String = String("process");
     var ui: String = String("terminal");
-    var port: i64 = 8080;
+    var port: i64 = 29583;
     var top: i64 = 10;
     var memory: bool = false;
     var interval: i64 = 1000;
