@@ -1,10 +1,12 @@
 # Provide an Ubuntu development environment for the dev container.
 FROM ubuntu:26.04
 
-# Install the latest rolling Sun release and its runtime dependencies.
+# Install the latest rolling Sun release and its runtime dependencies, plus the
+# SSH and GitHub clients so the mounted host ~/.ssh and ~/.config/gh folders
+# let git and gh work inside the container.
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        ca-certificates curl git g++ make perl \
+        ca-certificates curl git gh openssh-client g++ make perl \
         libzstd-dev libjitterentropy3-dev \
     && curl --fail --location --retry 3 \
         https://github.com/namo-robotics/sun/releases/download/dev/sun_0.dev_amd64.deb \
