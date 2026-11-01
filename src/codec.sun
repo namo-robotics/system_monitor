@@ -52,7 +52,7 @@ public module system_monitor {
   /** Validates and decodes one versioned recording sample. */
   function decode_frame(a: ref HeapAllocator, j: ref Json) Result<Frame> {
     if (try (try j.get("version")).as_i64() != 1 or
-      not (try (try j.get("type")).as_string().equals_literal("sample"))) {
+      not ((try (try j.get("type")).as_string()).equals_literal("sample"))) {
       return Result.Error(Error(1, "unsupported recording sample"));
     }
     var f = Frame(a);
@@ -66,8 +66,8 @@ public module system_monitor {
       var p = Process();
       p.pid = try (try row.get("pid")).as_i64();
       p.start = try number(try (try row.get("start")).as_string());
-      p.exe = try (try row.get("exe")).as_string().clone(a);
-      p.label = try (try row.get("label")).as_string().clone(a);
+      p.exe = (try (try row.get("exe")).as_string()).clone(a);
+      p.label = (try (try row.get("label")).as_string()).clone(a);
       if (not (try row.get("cpu")).is_null()) {
         p.cpu = try (try row.get("cpu")).as_f64();
       }

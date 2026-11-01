@@ -20,18 +20,18 @@ public module system_monitor {
     row: ref Json
   ) Result<String> {
     if (name.equals_literal("disk")) {
-      var id = try (try row.get("filesystem")).as_string().clone(a);
+      var id = (try (try row.get("filesystem")).as_string()).clone(a);
       id.append("\n");
       id.append(try (try row.get("mount")).as_string());
       return Result.Ok(id);
     }
     if (name.equals_literal("service")) {
-      return Result.Ok(try (try row.get("unit")).as_string().clone(a));
+      return Result.Ok((try (try row.get("unit")).as_string()).clone(a));
     }
     if (name.equals_literal("network")) {
-      return Result.Ok(try (try row.get("interface")).as_string().clone(a));
+      return Result.Ok((try (try row.get("interface")).as_string()).clone(a));
     }
-    return Result.Ok(try (try row.get("sensor")).as_string().clone(a));
+    return Result.Ok((try (try row.get("sensor")).as_string()).clone(a));
   }
 
   /** Holds two optional measurements without conflating missing data with zero or cold readings. */
@@ -97,10 +97,10 @@ public module system_monitor {
       totals.second_valid = totals.first_valid;
       for (var i: i64 = 0; i < data.rows.len(); i = i + 1) {
         var row: ref Json = try data.rows.at(i);
-        if (try (try row.get("active")).as_string().equals_literal("active")) {
+        if ((try (try row.get("active")).as_string()).equals_literal("active")) {
           totals.first = totals.first + 1.0;
         }
-        if (try (try row.get("active")).as_string().equals_literal("failed")) {
+        if ((try (try row.get("active")).as_string()).equals_literal("failed")) {
           totals.second = totals.second + 1.0;
         }
       }

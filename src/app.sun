@@ -67,7 +67,7 @@ public module system_monitor {
       var line = try this.replay.line(a);
       var meta = try parse_json(a, line);
       if (try (try meta.get("version")).as_i64() != 1 or
-        not (try (try meta.get("type")).as_string().equals_literal("session"))) {
+        not ((try (try meta.get("type")).as_string()).equals_literal("session"))) {
         return Result.Error(Error(1, "unsupported recording header"));
       }
 

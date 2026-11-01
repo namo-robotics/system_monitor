@@ -55,7 +55,7 @@ public module system_monitor {
   ) Result<String> {
     if (name.equals_literal("disk")) {
       if (index == 0) {
-        return Result.Ok(try (try row.get("mount")).as_string().clone(a));
+        return Result.Ok((try (try row.get("mount")).as_string()).clone(a));
       }
       if (index == 1) {
         return Result.Ok(try resource_number(row, String("used_bytes"), 1073741824.0));
@@ -84,7 +84,7 @@ public module system_monitor {
     if (name.equals_literal("temperature") and (index == 1 or index == 2)) {
       return Result.Ok(try resource_number(row, key, 1.0));
     }
-    return Result.Ok(try (try row.get(key)).as_string().clone(a));
+    return Result.Ok((try (try row.get(key)).as_string()).clone(a));
   }
 
   /** Owns graph history while collectors refresh or change tabs. */

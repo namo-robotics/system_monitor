@@ -39,7 +39,7 @@ public module system_monitor {
               same_identity = (try this.identities.get(p.pid)) == p.start;
             }
             if (same_identity) {
-              p.label = try (try this.document.value_at(k)).as_string().clone(a);
+              p.label = (try (try this.document.value_at(k)).as_string()).clone(a);
             }
             break;
           }

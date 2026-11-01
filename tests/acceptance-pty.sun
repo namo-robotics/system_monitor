@@ -325,7 +325,7 @@ public module acceptance {
     try tty.keys(String(" "));
     if (both) {
       var before_view = try wait_view(a, base, false);
-      var previous_time = try try (try before_view.get("snapshot")).get("elapsed_ms").as_i64();
+      var previous_time = (try (try (try before_view.get("snapshot"))).get("elapsed_ms")).as_i64();
       try tty.keys(String("b2"));
       try tty.drain(a, output, 300);
       try check(
@@ -334,7 +334,7 @@ public module acceptance {
       );
       var after_view = try wait_view(a, base, false);
       try check(
-        try try (try after_view.get("snapshot")).get("elapsed_ms").as_i64() > previous_time,
+        (try (try (try after_view.get("snapshot"))).get("elapsed_ms")).as_i64() > previous_time,
         "terminal navigation stopped web collection"
       );
     }
