@@ -280,6 +280,7 @@ public module acceptance {
   class Temp {
     var path: String;
 
+    /** Creates an isolated directory for recordings and fixture files. */
     init(a: ref HeapAllocator) MonitorTestResult<void> {
       this.path = String("/tmp/process-monitor-test-XXXXXX");
       try check(unsafe { mkdtemp(this.path.c_str()); } != null, "mkdtemp failed");
@@ -287,6 +288,7 @@ public module acceptance {
       return MonitorTestResult.Ok;
     }
 
+    /** Removes fixture files after success or failure. */
     deinit() {
       var a = make_heap_allocator();
       var cmd = std.process.Command(a, "rm");
@@ -300,12 +302,14 @@ public module acceptance {
   class Running {
     var child: std.process.Child;
 
+    /** Starts a child process whose lifetime belongs to this fixture. */
     init(cmd: ref std.process.Command) MonitorTestResult<void> {
       this.child = try cmd.start();
 
       return MonitorTestResult.Ok;
     }
 
+    /** Terminates and reaps a child that has not been stopped. */
     deinit() {
       var pid = this.child.id();
       if (pid > 0) {

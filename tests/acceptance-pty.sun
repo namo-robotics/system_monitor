@@ -69,6 +69,7 @@ public module acceptance {
     var fd: i32 = -1;
     var port: i64 = 0;
 
+    /** Reserves an ephemeral loopback port for listener tests. */
     init(a: ref HeapAllocator) MonitorTestResult<void> {
       var address = ContiguousBuffer<u8>(a, 16);
       address.fill(0u8);
@@ -90,6 +91,7 @@ public module acceptance {
       return MonitorTestResult.Ok;
     }
 
+    /** Releases the reserved listener. */
     deinit() {
       if (this.fd >= 0) {
         unsafe { close(this.fd); };
@@ -109,6 +111,7 @@ public module acceptance {
     var slave: i32 = -1;
     var pid: i32 = 0;
 
+    /** Opens and configures a pseudo-terminal pair. */
     init() MonitorTestResult<void> {
       var flags: i32 = 258;
       if (_target_is("macos")) {
@@ -124,6 +127,7 @@ public module acceptance {
       return MonitorTestResult.Ok;
     }
 
+    /** Closes the terminal pair and reaps any remaining child. */
     deinit() {
       if (this.pid > 0) {
         unsafe { (kill(this.pid, 9)); waitpid(this.pid, null, 0); };
