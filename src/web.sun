@@ -115,7 +115,7 @@ public module system_monitor {
               var rows: ref Json = try frame.get("processes");
               try point.set(String("process"), Json());
               for (var j: i64 = 0; j < rows.len(); j = j + 1) {
-                if ((try (try (try rows.at(j))).get("id")).as_string().equals(id)) {
+                if ((try (try (try rows.at(j)).get("id")).as_string()).equals(id)) {
                   var row = (try rows.at(j)).to_string(a);
                   try point.set(String("process"), try parse_json(a, row));
                 }
