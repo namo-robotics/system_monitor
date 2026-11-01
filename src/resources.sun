@@ -187,7 +187,7 @@ public module system_monitor {
       if (i > first) {
         text.append(" ");
       }
-      text.append((try fields.get(i)));
+      text.append((try vector_read(fields, i)));
     }
     return Result.Ok(text);
   }
@@ -196,13 +196,13 @@ public module system_monitor {
   function disk_row(a: ref HeapAllocator, line: const ref String) Result<Json> {
     var fields = line.split_whitespace(a);
     for (var i: i64 = 1; i + 4 < fields.size(); i = i + 1) {
-      var capacity: ref String = (try fields.get(i + 3));
+      var capacity: const ref String = (try vector_read(fields, i + 3));
       if (not capacity.ends_with("%") and not capacity.equals_literal("-")) {
         continue;
       }
-      var total = (try number((try fields.get(i))));
-      var used = (try number((try fields.get(i + 1))));
-      var available = (try number((try fields.get(i + 2))));
+      var total = (try number((try vector_read(fields, i))));
+      var used = (try number((try vector_read(fields, i + 1))));
+      var available = (try number((try vector_read(fields, i + 2))));
       var percent: i64 = -1;
       if (capacity.ends_with("%")) {
         var percent_text = (try capacity.substr(a, 0, capacity.length() - 1));
@@ -233,14 +233,14 @@ public module system_monitor {
   /* Preserves the systemd unit identity, state columns and description. */
   function service_row(a: ref HeapAllocator, line: const ref String) Result<Json> {
     var fields = line.split_whitespace(a);
-    if (fields.size() < 4 or not (try fields.get(0)).ends_with(".service")) {
+    if (fields.size() < 4 or not (try vector_read(fields, 0)).ends_with(".service")) {
       return Result.Error(Error(1, "malformed service row"));
     }
     var row = create_json_object(a);
-    (try row.set(String("unit"), create_json_string(a, (try fields.get(0)))));
-    (try row.set(String("load"), create_json_string(a, (try fields.get(1)))));
-    (try row.set(String("active"), create_json_string(a, (try fields.get(2)))));
-    (try row.set(String("sub"), create_json_string(a, (try fields.get(3)))));
+    (try row.set(String("unit"), create_json_string(a, (try vector_read(fields, 0)))));
+    (try row.set(String("load"), create_json_string(a, (try vector_read(fields, 1)))));
+    (try row.set(String("active"), create_json_string(a, (try vector_read(fields, 2)))));
+    (try row.set(String("sub"), create_json_string(a, (try vector_read(fields, 3)))));
     (try row.set(String("description"), Json((try joined_fields(a, fields, 4, fields.size())))));
     return Result.Ok(row);
   }
@@ -339,8 +339,8 @@ public module system_monitor {
       var result = (try cmd.output());
       var rows = result.stdout().split(a, 10u8);
       for (var i: i64 = 0; i < rows.size(); i = i + 1) {
-        if (not (try rows.get(i)).is_empty()) {
-          this.lines.push((try rows.get(i)).clone(a));
+        if (not (try vector_read(rows, i)).is_empty()) {
+          this.lines.push((try vector_read(rows, i)).clone(a));
         }
       }
       if ((result.status()) != 0) {
@@ -348,9 +348,9 @@ public module system_monitor {
         this.lines.push(this.message.clone(a));
         var errors = result.stderr().split(a, 10u8);
         if (errors.size() > 0) {
-          this.lines.push((try errors.get(0)).clone(a));
+          this.lines.push((try vector_read(errors, 0)).clone(a));
           this.message.append(" ");
-          this.message.append((try errors.get(0)));
+          this.message.append((try vector_read(errors, 0)));
         }
       }
 
@@ -390,15 +390,16 @@ public module system_monitor {
           String("list-units --type=service --all --no-pager --plain --no-legend")
         ));
         for (var i: i64 = 2; i < this.lines.size(); i = i + 1) {
-          var fields = (try this.lines.get(i)).split_whitespace(a);
-          if (fields.size() >= 4 and (try fields.get(0)).ends_with(".service")) {
-            (try this.rows.push((try service_row(a, (try this.lines.get(i))))));
-            var row = padded((try fields.get(2)), 11);
-            row.append(padded((try fields.get(3)), 14));
-            row.append(padded((try fields.get(1)), 11));
-            row.append((try fields.get(0)));
-            var line: ref String = (try this.lines.get(i));
+          var line: ref String = try this.lines.get(i);
+          var fields = line.split_whitespace(a);
+          if (fields.size() >= 4 and (try vector_read(fields, 0)).ends_with(".service")) {
+            var parsed = try service_row(a, line);
+            var row = padded((try vector_read(fields, 2)), 11);
+            row.append(padded((try vector_read(fields, 3)), 14));
+            row.append(padded((try vector_read(fields, 1)), 11));
+            row.append((try vector_read(fields, 0)));
             line = row;
+            try this.rows.push(parsed);
           }
         }
       } else {
@@ -430,10 +431,10 @@ public module system_monitor {
       var rows = text.split(a, 10u8);
       var current = Vec<Traffic>(a, 16);
       for (var i: i64 = 2; i < rows.size(); i = i + 1) {
-        if ((try rows.get(i)).is_empty()) {
+        if ((try vector_read(rows, i)).is_empty()) {
           continue;
         }
-        var t = (try parse_traffic(a, (try rows.get(i))));
+        var t = (try parse_traffic(a, (try vector_read(rows, i))));
         var rx: f64 = -1.0;
         var tx: f64 = -1.0;
         for (var j: i64 = 0; j < this.previous.size(); j = j + 1) {
@@ -578,8 +579,9 @@ public module system_monitor {
       if (std.io.exists("/sys/class/hwmon")) {
         var devices = (try std.io.read_dir(a, "/sys/class/hwmon"));
         for (var i: i64 = 0; i < devices.size(); i = i + 1) {
-          var base = resource_path(a, String("/sys/class/hwmon"), (try devices.get(i)).name());
-          match this.hwmon_device(a, base, (try devices.get(i)).name()) {
+          var device: ref std.io.DirEntry = try devices.get(i);
+          var base = resource_path(a, String("/sys/class/hwmon"), device.name());
+          match this.hwmon_device(a, base, device.name()) {
             Result.Ok(value) => {
               sensors = sensors + value;
             },
@@ -590,11 +592,12 @@ public module system_monitor {
       if (sensors == 0 and std.io.exists("/sys/class/thermal")) {
         var zones = (try std.io.read_dir(a, "/sys/class/thermal"));
         for (var i: i64 = 0; i < zones.size(); i = i + 1) {
-          if (not (try zones.get(i)).name().starts_with("thermal_zone")) {
+          var zone: ref std.io.DirEntry = try zones.get(i);
+          if (not zone.name().starts_with("thermal_zone")) {
             continue;
           }
-          var base = resource_path(a, String("/sys/class/thermal"), (try zones.get(i)).name());
-          var label = (try zones.get(i)).name().clone(a);
+          var base = resource_path(a, String("/sys/class/thermal"), zone.name());
+          var label = zone.name().clone(a);
           label.append("/");
           label.append(attribute(a, resource_path(a, base, String("type"))));
           (try this.sensor(a, label, resource_path(a, base, String("temp")), String("")));

@@ -183,11 +183,18 @@ public module system_monitor {
     method add(frame: ResourceFrame) Result<void> {
       this.latest = frame.elapsed;
       while (this.frames.size() > 0) {
-        if (this.latest - (try this.frames.get(0)).elapsed <= this.duration and
-          this.bytes + frame.bytes <= this.limit and this.frames.size() < 2048) {
-          break;
-        }
-        this.bytes = this.bytes - (try this.frames.get(0)).bytes;
+        var removed_bytes: i64 = 0;
+        match this.frames.get(0) {
+          AccessResult.Ok(oldest) => {
+          if (this.latest - oldest.elapsed <= this.duration and
+            this.bytes + frame.bytes <= this.limit and this.frames.size() < 2048) {
+            break;
+          }
+          removed_bytes = oldest.bytes;
+          },
+          AccessResult.OutOfBounds(error) => { return Result.OutOfBounds(error); }
+        };
+        this.bytes = this.bytes - removed_bytes;
         var removed = (try this.frames.remove(0));
         this.evicted = true;
       }
@@ -205,9 +212,10 @@ public module system_monitor {
     method begin(name: const ref String) Result<i64> {
       var begin = this.latest - this.duration;
       for (var i: i64 = 0; i < this.frames.size(); i = i + 1) {
-        if ((try this.frames.get(i)).monitor.equals(name)) {
-          if (begin < (try this.frames.get(i)).elapsed) {
-            begin = (try this.frames.get(i)).elapsed;
+        var frame = try vector_read(this.frames, i);
+        if (frame.monitor.equals(name)) {
+          if (begin < frame.elapsed) {
+            begin = frame.elapsed;
           }
           return Result.Ok(begin);
         }

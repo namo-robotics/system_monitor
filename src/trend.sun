@@ -87,7 +87,7 @@ public module system_monitor {
           bit = 128;
         }
       }
-      (try this.masks.set(index, (try this.masks.get(index)) | bit));
+      (try this.masks.set(index, (try buffer_value(this.masks, index)) | bit));
       (try this.owners.set(index, owner));
 
       return Result.Ok;
@@ -100,8 +100,8 @@ public module system_monitor {
       }
       for (var y = top; y < this.height * 4; y = y + 1) {
         var index = (y / 4) * this.width + x / 2;
-        var foreground: i64 = (try this.owners.get(index));
-        if (top >= (try this.depths.get(index))) {
+        var foreground: i64 = (try buffer_value(this.owners, index));
+        if (top >= (try buffer_value(this.depths, index))) {
           (try this.depths.set(index, top));
           foreground = owner;
         }
@@ -138,13 +138,13 @@ public module system_monitor {
     method render_row(out: ref String, row: i64, colored: bool) Result<void> {
       for (var col: i64 = 0; col < this.width; col = col + 1) {
         var index = row * this.width + col;
-        var mask: i64 = (try this.masks.get(index));
+        var mask: i64 = (try buffer_value(this.masks, index));
         if (mask == 0) {
           out.append(" ");
           continue;
         }
         if (colored) {
-          out.append(trend_color((try this.owners.get(index))));
+          out.append(trend_color((try buffer_value(this.owners, index))));
         }
         out.append_char(226u8);
         out.append_char(_convert<u8>(160 + mask / 64));

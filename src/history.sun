@@ -27,11 +27,17 @@ public module system_monitor {
       this.latest = latest;
       var cost = (try frame.cost());
       while ((this.frames.size()) > 0) {
-        if (latest - (try this.frames.get(0)).elapsed <= this.duration and
-          this.bytes + cost <= this.limit) {
-          break;
-        }
-        this.bytes = this.bytes - ((try (try this.frames.get(0)).cost()));
+        var removed_cost: i64 = 0;
+        match this.frames.get(0) {
+          AccessResult.Ok(oldest) => {
+          if (latest - oldest.elapsed <= this.duration and this.bytes + cost <= this.limit) {
+            break;
+          }
+          removed_cost = try oldest.cost();
+          },
+          AccessResult.OutOfBounds(error) => { return Result.OutOfBounds(error); }
+        };
+        this.bytes = this.bytes - removed_cost;
         var removed = (try this.frames.remove(0));
         this.evicted = true;
       }
@@ -51,9 +57,9 @@ public module system_monitor {
       if ((this.frames.size()) < 2) {
         return Result.Ok(0);
       }
-      return Result.Ok(
-        (try this.frames.get((this.frames.size()) - 1)).elapsed - (try this.frames.get(0)).elapsed
-      );
+      var first = try vector_read(this.frames, 0);
+      var last = try vector_read(this.frames, this.frames.size() - 1);
+      return Result.Ok(last.elapsed - first.elapsed);
     }
   }
 }

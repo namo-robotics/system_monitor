@@ -192,15 +192,15 @@ public module system_monitor {
     var argc = unsafe { _load<i32>(data.raw_data(), 0); };
     var end = _convert<i64>(size);
     var pos: i64 = 4;
-    while (pos < end and (try data.get(pos)) != 0u8) {
+    while (pos < end and (try buffer_value(data, pos)) != 0u8) {
       pos = pos + 1;
     }
-    while (pos < end and (try data.get(pos)) == 0u8) {
+    while (pos < end and (try buffer_value(data, pos)) == 0u8) {
       pos = pos + 1;
     }
     for (var i: i32 = 0; i < argc and pos < end; i = i + 1) {
-      while (pos < end and (try data.get(pos)) != 0u8) {
-        out.append_char((try data.get(pos)));
+      while (pos < end and (try buffer_value(data, pos)) != 0u8) {
+        out.append_char((try buffer_value(data, pos)));
         pos = pos + 1;
       }
       out.append_char(0u8);
@@ -218,8 +218,8 @@ public module system_monitor {
     task.fill(0);
     var n = unsafe { pm_pidinfo(pid, 4, 0, task.raw_data(), 96); };
     if (n == 96) {
-      p.rss = _convert<i64>((try task.get(1)));
-      p.ticks = _convert<i64>((try task.get(2)) + (try task.get(3)));
+      p.rss = _convert<i64>((try buffer_value(task, 1)));
+      p.ticks = _convert<i64>((try buffer_value(task, 2)) + (try buffer_value(task, 3)));
     }
     var path = ContiguousBuffer<u8>(a, 4096);
     path.fill(0);

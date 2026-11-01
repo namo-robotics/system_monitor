@@ -3,6 +3,23 @@ public module system_monitor {
 
   using std;
 
+  /** Copies a checked buffer element without keeping its storage borrowed. */
+  function buffer_value<T: _Primitive>(buffer: const ref ContiguousBuffer<T>, index: i64) AccessResult<T> {
+    var value: T = try buffer.get(index);
+    return AccessResult.Ok(value);
+  }
+
+  /** Copies a checked vector element without keeping its storage borrowed. */
+  function vector_value<T: _Primitive>(values: const ref Vec<T>, index: i64) AccessResult<T> {
+    var value: T = try values.get(index);
+    return AccessResult.Ok(value);
+  }
+
+  /** Borrows a checked vector element for read-only access. */
+  function vector_read<T>(values: const ref Vec<T>, index: i64) AccessResult<const ref T> {
+    return AccessResult.Ok(try values.get(index));
+  }
+
   /* Owns the identity, metadata, and measurements of one process. */
   class Process {
     var pid: i64 = 0;

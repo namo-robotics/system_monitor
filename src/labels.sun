@@ -24,11 +24,19 @@ public module system_monitor {
         var key = String("");
         key.append(p.pid);
         for (var k: i64 = 0; k < this.document.len(); k = k + 1) {
-          if ((try this.document.key_at(k)).equals(key)) {
+          var matches = match this.document.key_at(k) {
+            JsonResult.Ok(name) => name.equals(key),
+            JsonResult.Error(error) => { return Result.Json(error); }
+          };
+          if (matches) {
             if (not this.bound and not this.identities.contains(p.pid)) {
               this.identities.insert(p.pid, p.start);
             }
-            if (this.identities.contains(p.pid) and (try this.identities.get(p.pid)) == p.start) {
+            var same_identity = false;
+            if (this.identities.contains(p.pid)) {
+              same_identity = (try this.identities.get(p.pid)) == p.start;
+            }
+            if (same_identity) {
               p.label = ((try (try this.document.value_at(k)).as_string())).clone(a);
             }
             break;

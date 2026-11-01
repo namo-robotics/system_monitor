@@ -81,7 +81,7 @@ public module system_monitor {
     var buffer = ContiguousBuffer<u8>(a, 4096);
     var n = unsafe { pm_readlink(exe.c_str(), buffer.raw_data(), 4095u64); };
     if (n > 0) {
-      p.exe = (try String(a, buffer, n));
+      match String(a, buffer, n) { AccessResult.Ok(path) => { p.exe = path; }, (e: const ref IError) => {} };
     }
   }
 

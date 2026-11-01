@@ -298,8 +298,8 @@ public module system_monitor {
         request = 1074295912;
       }
       if (unsafe { pm_ioctl(1, request, b.raw_data()); } == 0) {
-        this.rows = _convert<i64>((try b.get(0)));
-        this.columns = _convert<i64>((try b.get(1)));
+        this.rows = _convert<i64>((try buffer_value(b, 0)));
+        this.columns = _convert<i64>((try buffer_value(b, 1)));
       }
 
       return Result.Ok;
