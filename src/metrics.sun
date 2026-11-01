@@ -3,13 +3,13 @@ public module system_monitor {
   using std;
 
   /* Parses an integer or reports invalid input. */
-  function number(s: const ref String) i64 throws IError {
+  function number(s: const ref String) Result<i64> {
     match s.parse_i64() {
       Option.Some(n) => {
-        return n;
+        return Result.Ok(n);
       },
       Option.None => {
-        throw Error(1, "expected an integer");
+        return Result.Error( Error(1, "expected an integer"));
       }
     };
   }
@@ -23,23 +23,25 @@ public module system_monitor {
   }
 
   /* Derives CPU and memory values while rejecting recycled process identities. */
-  function calculate(frame: ref Frame, previous: ref Frame, ticks_per_second: i64) void throws IError {
+  function calculate(frame: ref Frame, previous: ref Frame, ticks_per_second: i64) Result<void> {
     var a = make_heap_allocator();
-    var index = Map<i64, i64>(a, previous.processes.size() * 2 + 8);
-    for (var i: i64 = 0; i < previous.processes.size(); i = i + 1) {
-      index.insert(previous.processes.get(i).pid, i);
+    var index = Map<i64, i64>(a, (previous.processes.size()) * 2 + 8);
+    for (var i: i64 = 0; i < (previous.processes.size()); i = i + 1) {
+      index.insert((try previous.processes.get(i)).pid, i);
     }
     for (var i: i64 = 0; i < frame.processes.size(); i = i + 1) {
-      var p: ref Process = frame.processes.get(i);
+      var p: ref Process = (try frame.processes.get(i));
       if (p.rss >= 0 and frame.total_memory > 0) {
         p.memory = _convert<f64>(p.rss) * 100.0 / _convert<f64>(frame.total_memory);
       }
       if (index.contains(p.pid)) {
-        var old: ref Process = previous.processes.get(index.get(p.pid));
+        var old: ref Process = (try previous.processes.get((try index.get(p.pid))));
         if (old.start == p.start) {
           p.cpu = cpu_percent(old.ticks, p.ticks, frame.elapsed - previous.elapsed, ticks_per_second);
         }
       }
     }
-  }
+  
+ return Result.Ok;
+}
 }

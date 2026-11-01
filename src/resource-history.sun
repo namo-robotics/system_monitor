@@ -13,20 +13,20 @@ public module system_monitor {
   }
 
   /* Identifies a row across reordering and sampling. */
-  function resource_identity(a: const ref HeapAllocator, name: const ref String, row: ref Json) String throws IError {
+  function resource_identity(a: const ref HeapAllocator, name: const ref String, row: ref Json) Result<String> {
     if (name.equals_literal("disk")) {
-      var id = row.get("filesystem").as_string().clone(a);
+      var id = ((try try (try row.get("filesystem")).as_string())).clone(a);
       id.append("\n");
-      id.append(row.get("mount").as_string());
-      return id;
+      id.append(((try try (try row.get("mount")).as_string())));
+      return Result.Ok(id);
     }
     if (name.equals_literal("service")) {
-      return row.get("unit").as_string().clone(a);
+      return Result.Ok(((try try (try row.get("unit")).as_string())).clone(a));
     }
     if (name.equals_literal("network")) {
-      return row.get("interface").as_string().clone(a);
+      return Result.Ok(((try try (try row.get("interface")).as_string())).clone(a));
     }
-    return row.get("sensor").as_string().clone(a);
+    return Result.Ok(((try try (try row.get("sensor")).as_string())).clone(a));
   }
 
   /* Holds two optional measurements without conflating missing data with zero or cold readings. */
@@ -38,18 +38,20 @@ public module system_monitor {
     var second_valid: bool = false;
 
     /* Copies a nullable JSON measurement into the selected series. */
-    method set(value: ref Json, second: bool, divisor: f64) void throws IError {
+    method set(value: ref Json, second: bool, divisor: f64) Result<void> {
       if (not value.is_number()) {
-        return;
+        return Result.Ok;
       }
       if (second) {
-        this.second = value.as_f64() / divisor;
+        this.second = (try value.as_f64()) / divisor;
         this.second_valid = true;
       } else {
-        this.first = value.as_f64() / divisor;
+        this.first = (try value.as_f64()) / divisor;
         this.first_valid = true;
       }
-    }
+    
+ return Result.Ok;
+}
   }
 
   /* Stores only chart values and identities, excluding full table descriptions. */
@@ -65,14 +67,16 @@ public module system_monitor {
       this.readings = Vec<ResourceReading>(a, 16);
     }
     /* Accounts for identity storage before retaining a measurement. */
-    method add(reading: ResourceReading) void throws IError {
+    method add(reading: ResourceReading) Result<void> {
       this.bytes = this.bytes + 96 + reading.id.length();
       this.readings.push(reading);
-    }
+    
+ return Result.Ok;
+}
   }
 
   /* Converts a collector snapshot to values suitable for resource history graphs. */
-  function resource_frame(a: ref HeapAllocator, data: ref Resources, name: const ref String, elapsed: i64) ResourceFrame throws IError {
+  function resource_frame(a: ref HeapAllocator, data: ref Resources, name: const ref String, elapsed: i64) Result<ResourceFrame> {
     var frame = ResourceFrame(a, name, elapsed);
     if (name.equals_literal("service")) {
       var totals = ResourceReading();
@@ -80,33 +84,33 @@ public module system_monitor {
       totals.first_valid = data.message.is_empty();
       totals.second_valid = totals.first_valid;
       for (var i: i64 = 0; i < data.rows.len(); i = i + 1) {
-        var row: ref Json = data.rows.at(i);
-        if (row.get("active").as_string().equals_literal("active")) {
+        var row: ref Json = (try data.rows.at(i));
+        if (((try try (try row.get("active")).as_string())).equals_literal("active")) {
           totals.first = totals.first + 1.0;
         }
-        if (row.get("active").as_string().equals_literal("failed")) {
+        if (((try try (try row.get("active")).as_string())).equals_literal("failed")) {
           totals.second = totals.second + 1.0;
         }
       }
-      frame.add(totals);
-      return frame;
+      (try frame.add(totals));
+      return Result.Ok(frame);
     }
     for (var i: i64 = 0; i < data.rows.len(); i = i + 1) {
-      var row: ref Json = data.rows.at(i);
+      var row: ref Json = (try data.rows.at(i));
       var reading = ResourceReading();
-      reading.id = resource_identity(a, name, row);
+      reading.id = (try resource_identity(a, name, row));
       if (name.equals_literal("disk")) {
-        reading.set(row.get("used_percent"), false, 1.0);
+        (try reading.set((try row.get("used_percent")), false, 1.0));
       } else if (name.equals_literal("network")) {
-        reading.set(row.get("rx_bytes_per_sec"), false, 1024.0);
-        reading.set(row.get("tx_bytes_per_sec"), true, 1024.0);
+        (try reading.set((try row.get("rx_bytes_per_sec")), false, 1024.0));
+        (try reading.set((try row.get("tx_bytes_per_sec")), true, 1024.0));
       } else {
-        reading.set(row.get("celsius"), false, 1.0);
-        reading.set(row.get("critical_celsius"), true, 1.0);
+        (try reading.set((try row.get("celsius")), false, 1.0));
+        (try reading.set((try row.get("critical_celsius")), true, 1.0));
       }
-      frame.add(reading);
+      (try frame.add(reading));
     }
-    return frame;
+    return Result.Ok(frame);
   }
 
   /* Maps signed values to the graph's vertical dot coordinates. */
@@ -122,7 +126,7 @@ public module system_monitor {
   }
 
   /* Connects measured points with fine dots, leaving the area underneath unfilled. */
-  function resource_stroke(canvas: ref DotCanvas, x0: i64, y0: i64, x1: i64, y1: i64, owner: i64) void throws IError {
+  function resource_stroke(canvas: ref DotCanvas, x0: i64, y0: i64, x1: i64, y1: i64, owner: i64) Result<void> {
     var steps = x1 - x0;
     var vertical = y1 - y0;
     if (vertical < 0) {
@@ -132,13 +136,15 @@ public module system_monitor {
       steps = vertical;
     }
     if (steps < 1) {
-      canvas.point(x1, y1, owner);
-      return;
+      (try canvas.point(x1, y1, owner));
+      return Result.Ok;
     }
     for (var i: i64 = 0; i <= steps; i = i + 1) {
-      canvas.point(x0 + (x1 - x0) * i / steps, y0 + (y1 - y0) * i / steps, owner);
+      (try canvas.point(x0 + (x1 - x0) * i / steps, y0 + (y1 - y0) * i / steps, owner));
     }
-  }
+  
+ return Result.Ok;
+}
 
   /* Keeps chart history across tab changes within time, frame-count and memory limits. */
   class ResourceHistory {
@@ -153,38 +159,40 @@ public module system_monitor {
       this.frames = Vec<ResourceFrame>(a, 16);
     }
     /* Retains compact readings and evicts the oldest frames first. */
-    method add(frame: ResourceFrame) void throws IError {
+    method add(frame: ResourceFrame) Result<void> {
       this.latest = frame.elapsed;
       while (this.frames.size() > 0) {
-        if (this.latest - this.frames.get(0).elapsed <= this.duration and this.bytes + frame.bytes <= this.limit and this.frames.size() < 2048) {
+        if (this.latest - (try this.frames.get(0)).elapsed <= this.duration and this.bytes + frame.bytes <= this.limit and this.frames.size() < 2048) {
           break;
         }
-        this.bytes = this.bytes - this.frames.get(0).bytes;
-        var removed = this.frames.remove(0);
+        this.bytes = this.bytes - (try this.frames.get(0)).bytes;
+        var removed = (try this.frames.remove(0));
         this.evicted = true;
       }
       if (frame.bytes > this.limit) {
         this.evicted = true;
-        return;
+        return Result.Ok;
       }
       this.bytes = this.bytes + frame.bytes;
       this.frames.push(frame);
-    }
+    
+ return Result.Ok;
+}
     /* Anchors startup at the first retained sample before scrolling the time window. */
-    method begin(name: const ref String) i64 throws IError {
+    method begin(name: const ref String) Result<i64> {
       var begin = this.latest - this.duration;
       for (var i: i64 = 0; i < this.frames.size(); i = i + 1) {
-        if (this.frames.get(i).monitor.equals(name)) {
-          if (begin < this.frames.get(i).elapsed) {
-            begin = this.frames.get(i).elapsed;
+        if ((try this.frames.get(i)).monitor.equals(name)) {
+          if (begin < (try this.frames.get(i)).elapsed) {
+            begin = (try this.frames.get(i)).elapsed;
           }
-          return begin;
+          return Result.Ok(begin);
         }
       }
-      return this.latest;
+      return Result.Ok(this.latest);
     }
     /* Traces one series, breaking at missing samples, tab gaps and long delays. */
-    method trace(canvas: ref DotCanvas, name: const ref String, id: const ref String, second: bool, begin: i64, low: f64, high: f64, interval: i64) void throws IError {
+    method trace(canvas: ref DotCanvas, name: const ref String, id: const ref String, second: bool, begin: i64, low: f64, high: f64, interval: i64) Result<void> {
       var connected = false;
       var old_x: i64 = 0;
       var old_y: i64 = 0;
@@ -194,14 +202,14 @@ public module system_monitor {
         owner = 1;
       }
       for (var i: i64 = 0; i < this.frames.size(); i = i + 1) {
-        var frame: ref ResourceFrame = this.frames.get(i);
+        var frame: ref ResourceFrame = (try this.frames.get(i));
         if (not frame.monitor.equals(name) or frame.elapsed < begin) {
           connected = false;
           continue;
         }
         var found = false;
         for (var j: i64 = 0; j < frame.readings.size(); j = j + 1) {
-          var reading: ref ResourceReading = frame.readings.get(j);
+          var reading: ref ResourceReading = (try frame.readings.get(j));
           if (not reading.id.equals(id)) {
             continue;
           }
@@ -218,9 +226,9 @@ public module system_monitor {
           var x = time_pixel(frame.elapsed, begin, begin + this.duration, canvas.width * 2);
           var y = resource_y(value, low, high, canvas.height);
           if (connected and frame.elapsed - old_time <= interval * 3) {
-            resource_stroke(canvas, old_x, old_y, x, y, owner);
+            (try resource_stroke(canvas, old_x, old_y, x, y, owner));
           } else {
-            canvas.point(x, y, owner);
+            (try canvas.point(x, y, owner));
           }
           connected = true;
           old_x = x;
@@ -232,9 +240,11 @@ public module system_monitor {
           connected = false;
         }
       }
-    }
+    
+ return Result.Ok;
+}
     /* Draws a bordered Braille-dot history with a shared numeric scale and legend. */
-    method draw(a: const ref HeapAllocator, out: ref String, style: ref TableStyle, name: const ref String, selected: const ref String, height: i64, interval: i64) void throws IError {
+    method draw(a: const ref HeapAllocator, out: ref String, style: ref TableStyle, name: const ref String, selected: const ref String, height: i64, interval: i64) Result<void> {
       var id = selected.clone(a);
       var title = String("DISK USAGE HISTORY (%)");
       var legends = String("Used capacity| ");
@@ -257,14 +267,14 @@ public module system_monitor {
       if (name.equals_literal("disk")) {
         high = 100.0;
       }
-      var begin = this.begin(name);
+      var begin = (try this.begin(name));
       for (var i: i64 = 0; i < this.frames.size(); i = i + 1) {
-        var frame: ref ResourceFrame = this.frames.get(i);
+        var frame: ref ResourceFrame = (try this.frames.get(i));
         if (not frame.monitor.equals(name) or frame.elapsed < begin) {
           continue;
         }
         for (var j: i64 = 0; j < frame.readings.size(); j = j + 1) {
-          var reading: ref ResourceReading = frame.readings.get(j);
+          var reading: ref ResourceReading = (try frame.readings.get(j));
           if (not reading.id.equals(id)) {
             continue;
           }
@@ -292,10 +302,10 @@ public module system_monitor {
         title.append(" | waiting for data");
       }
       var canvas = DotCanvas(a, style.width - 13, height);
-      this.trace(canvas, name, id, true, begin, low, high, interval);
-      this.trace(canvas, name, id, false, begin, low, high, interval);
+      (try this.trace(canvas, name, id, true, begin, low, high, interval));
+      (try this.trace(canvas, name, id, false, begin, low, high, interval));
       style.rule(out, 0, false);
-      style.panel_line(a, out, title, true);
+      (try style.panel_line(a, out, title, true));
       style.rule(out, 1, false);
       for (var row: i64 = 0; row < height; row = row + 1) {
         var label = String("");
@@ -306,9 +316,9 @@ public module system_monitor {
         }
         style.edge(out, "│", "|");
         out.append(" ");
-        out.append(padded(safe_text(a, label, 8), 8));
+        out.append(padded((try safe_text(a, label, 8)), 8));
         out.append(" ");
-        canvas.render_row(out, row, style.colored);
+        (try canvas.render_row(out, row, style.colored));
         out.append(" ");
         style.edge(out, "│", "|");
         out.append("\r\n");
@@ -321,7 +331,7 @@ public module system_monitor {
       if (this.evicted) {
         axis.append(" | history trimmed");
       }
-      style.panel_line(a, out, axis, false);
+      (try style.panel_line(a, out, axis, false));
       var parts = legends.split(a, b'|');
       style.edge(out, "│", "|");
       var first_width = (style.width - 2) / 2;
@@ -331,12 +341,14 @@ public module system_monitor {
           width = style.width - 2 - first_width;
         }
         style.color(out, trend_color(i));
-        out.append(padded(safe_text(a, parts.get(i), width), width));
+        out.append(padded((try safe_text(a, (try parts.get(i)), width)), width));
         style.color(out, "\x1b[0m");
       }
       style.edge(out, "│", "|");
       out.append("\r\n");
       style.rule(out, 2, false);
-    }
+    
+ return Result.Ok;
+}
   }
 }

@@ -61,9 +61,9 @@ public module system_monitor {
     }
 
     /* Plots one dot, rejecting coordinates outside the canvas. */
-    method point(x: i64, y: i64, owner: i64) void throws IError {
+    method point(x: i64, y: i64, owner: i64) Result<void> {
       if (x < 0 or y < 0 or x >= this.width * 2 or y >= this.height * 4) {
-        return;
+        return Result.Ok;
       }
       var index = (y / 4) * this.width + x / 2;
       var bit: i64 = 1;
@@ -82,28 +82,32 @@ public module system_monitor {
           bit = 128;
         }
       }
-      this.masks.set(index, this.masks.get(index) | bit);
-      this.owners.set(index, owner);
-    }
+      (try this.masks.set(index, (try this.masks.get(index)) | bit));
+      (try this.owners.set(index, owner));
+    
+ return Result.Ok;
+}
 
     /* Fills to the baseline, giving shorter areas the color of overlapping cells. */
-    method column(x: i64, top: i64, owner: i64) void throws IError {
+    method column(x: i64, top: i64, owner: i64) Result<void> {
       if (x < 0 or x >= this.width * 2 or top < 0 or top >= this.height * 4) {
-        return;
+        return Result.Ok;
       }
       for (var y = top; y < this.height * 4; y = y + 1) {
         var index = (y / 4) * this.width + x / 2;
-        var foreground: i64 = this.owners.get(index);
-        if (top >= this.depths.get(index)) {
-          this.depths.set(index, top);
+        var foreground: i64 = (try this.owners.get(index));
+        if (top >= (try this.depths.get(index))) {
+          (try this.depths.set(index, top));
           foreground = owner;
         }
-        this.point(x, y, foreground);
+        (try this.point(x, y, foreground));
       }
-    }
+    
+ return Result.Ok;
+}
 
     /* Interpolates the filled area between consecutive available samples. */
-    method line(x0: i64, y0: i64, x1: i64, y1: i64, owner: i64) void throws IError {
+    method line(x0: i64, y0: i64, x1: i64, y1: i64, owner: i64) Result<void> {
       var dx = x1 - x0;
       var dy = y1 - y0;
       var steps = dx;
@@ -115,25 +119,27 @@ public module system_monitor {
         steps = vertical;
       }
       if (steps < 1) {
-        this.column(x1, y1, owner);
-        return;
+        (try this.column(x1, y1, owner));
+        return Result.Ok;
       }
       for (var i: i64 = 0; i <= steps; i = i + 1) {
-        this.column(x0 + dx * i / steps, y0 + dy * i / steps, owner);
+        (try this.column(x0 + dx * i / steps, y0 + dy * i / steps, owner));
       }
-    }
+    
+ return Result.Ok;
+}
 
     /* Emits a row of colored Braille dots rather than magnitude symbols. */
-    method render_row(out: ref String, row: i64, colored: bool) void throws IError {
+    method render_row(out: ref String, row: i64, colored: bool) Result<void> {
       for (var col: i64 = 0; col < this.width; col = col + 1) {
         var index = row * this.width + col;
-        var mask: i64 = this.masks.get(index);
+        var mask: i64 = (try this.masks.get(index));
         if (mask == 0) {
           out.append(" ");
           continue;
         }
         if (colored) {
-          out.append(trend_color(this.owners.get(index)));
+          out.append(trend_color((try this.owners.get(index))));
         }
         out.append_char(226u8);
         out.append_char(_convert<u8>(160 + mask / 64));
@@ -142,7 +148,9 @@ public module system_monitor {
       if (colored) {
         out.append("\x1b[0m");
       }
-    }
+    
+ return Result.Ok;
+}
   }
 
   /* Owns the active top-five identities and renders their shared history plot. */
@@ -155,17 +163,17 @@ public module system_monitor {
     }
 
     /* Chooses current leaders independently of the table's display limit. */
-    method select(a: const ref HeapAllocator, frame: ref Frame, memory: bool) void throws IError {
-      var order = ranking(a, frame, memory);
+    method select(a: const ref HeapAllocator, frame: ref Frame, memory: bool) Result<void> {
+      var order = (try ranking(a, frame, memory));
       var next = Vec<TrendSeries>(a, 5);
       for (var i: i64 = 0; i < order.size() and next.size() < 5; i = i + 1) {
-        var process: ref Process = frame.processes.get(order.get(i));
+        var process: ref Process = (try frame.processes.get((try order.get(i))));
         if ((memory and process.rss < 0) or (not memory and process.cpu < 0.0)) {
           continue;
         }
         var item = TrendSeries(a, process);
         for (var old: i64 = 0; old < this.series.size(); old = old + 1) {
-          var prior: ref TrendSeries = this.series.get(old);
+          var prior: ref TrendSeries = (try this.series.get(old));
           if (prior.pid == item.pid and prior.start == item.start) {
             item.color = prior.color;
             break;
@@ -173,30 +181,35 @@ public module system_monitor {
         }
         next.push(item);
       }
-      this.assign_colors(next);
+      (try this.assign_colors(next));
       this.series = next;
-    }
+    
+ return Result.Ok;
+}
 
     /* Preserves existing colors and gives new identities unused palette slots. */
-    method assign_colors(next: ref Vec<TrendSeries>) void throws IError {
+    method assign_colors(next: ref Vec<TrendSeries>) Result<void> {
       for (var i: i64 = 0; i < next.size(); i = i + 1) {
-        if (next.get(i).color >= 0) {
+        if ((try next.get(i)).color >= 0) {
           continue;
         }
         for (var slot: i64 = 0; slot < 5; slot = slot + 1) {
           var used = false;
           for (var k: i64 = 0; k < next.size(); k = k + 1) {
-            if (next.get(k).color == slot) {
+            if ((try next.get(k)).color == slot) {
               used = true;
             }
           }
           if (not used) {
-            next.get(i).color = slot;
+            var changed_6642 = (try next.get(i));
+            changed_6642.color = slot;
             break;
           }
         }
       }
-    }
+    
+ return Result.Ok;
+}
 
     /* Anchors startup at the first sample, then advances the fixed time window. */
     method begin(history: ref History) i64 {
@@ -208,40 +221,40 @@ public module system_monitor {
     }
 
     /* Finds one common resource scale across all displayed histories. */
-    method scale(history: ref History, memory: bool) f64 throws IError {
+    method scale(history: ref History, memory: bool) Result<f64> {
       var peak: f64 = 1.0;
-      var begin = this.begin(history);
+      var begin = (try this.begin(history));
       for (var f: i64 = 0; f < history.frames.size(); f = f + 1) {
-        if (history.frames.get(f).elapsed < begin) {
+        if ((try history.frames.get(f)).elapsed < begin) {
           continue;
         }
         for (var i: i64 = 0; i < this.series.size(); i = i + 1) {
-          var item: ref TrendSeries = this.series.get(i);
-          var value = history_value(history.frames.get(f), item.pid, item.start, memory);
+          var item: ref TrendSeries = (try this.series.get(i));
+          var value = (try history_value((try history.frames.get(f)), item.pid, item.start, memory));
           if (value > peak) {
             peak = value;
           }
         }
       }
-      return peak;
+      return Result.Ok(peak);
     }
 
     /* Draws a process history while breaking the line at missing samples. */
-    method trace(canvas: ref DotCanvas, history: ref History, item: ref TrendSeries, memory: bool, peak: f64) void throws IError {
+    method trace(canvas: ref DotCanvas, history: ref History, item: ref TrendSeries, memory: bool, peak: f64) Result<void> {
       if (history.frames.is_empty()) {
-        return;
+        return Result.Ok;
       }
-      var begin = this.begin(history);
+      var begin = (try this.begin(history));
       var end = begin + this.duration;
       var connected = false;
       var previous_x: i64 = 0;
       var previous_y: i64 = 0;
       for (var i: i64 = 0; i < history.frames.size(); i = i + 1) {
-        var frame: ref Frame = history.frames.get(i);
+        var frame: ref Frame = (try history.frames.get(i));
         if (frame.elapsed < begin) {
           continue;
         }
-        var value = history_value(frame, item.pid, item.start, memory);
+        var value = (try history_value(frame, item.pid, item.start, memory));
         if (value < 0.0) {
           connected = false;
           continue;
@@ -249,18 +262,20 @@ public module system_monitor {
         var x = time_pixel(frame.elapsed, begin, end, canvas.width * 2);
         var y = canvas.height * 4 - 1 - _convert<i64>(value / peak * _convert<f64>(canvas.height * 4 - 1));
         if (connected) {
-          canvas.line(previous_x, previous_y, x, y, item.color);
+          (try canvas.line(previous_x, previous_y, x, y, item.color));
         } else {
-          canvas.column(x, y, item.color);
+          (try canvas.column(x, y, item.color));
         }
         previous_x = x;
         previous_y = y;
         connected = true;
       }
-    }
+    
+ return Result.Ok;
+}
 
     /* Writes an axis label and a raster row inside the bordered panel. */
-    method plot_row(a: const ref HeapAllocator, out: ref String, style: ref TableStyle, canvas: ref DotCanvas, row: i64, peak: f64) void throws IError {
+    method plot_row(a: const ref HeapAllocator, out: ref String, style: ref TableStyle, canvas: ref DotCanvas, row: i64, peak: f64) Result<void> {
       var label = String("");
       if (row == 0) {
         label = decimal(peak);
@@ -269,16 +284,18 @@ public module system_monitor {
       }
       style.edge(out, "│", "|");
       out.append(" ");
-      out.append(padded(safe_text(a, label, 8), 8));
+      out.append(padded((try safe_text(a, label, 8)), 8));
       out.append(" ");
-      canvas.render_row(out, row, style.colored);
+      (try canvas.render_row(out, row, style.colored));
       out.append(" ");
       style.edge(out, "│", "|");
       out.append("\r\n");
-    }
+    
+ return Result.Ok;
+}
 
     /* Identifies every line with matching colors, process names, and PIDs. */
-    method legend(a: const ref HeapAllocator, out: ref String, style: ref TableStyle) void throws IError {
+    method legend(a: const ref HeapAllocator, out: ref String, style: ref TableStyle) Result<void> {
       for (var row: i64 = 0; row < 2; row = row + 1) {
         style.edge(out, "│", "|");
         var width = (style.width - 2) / 3;
@@ -286,7 +303,7 @@ public module system_monitor {
           var index = row * 3 + col;
           var text = String("");
           if (index < this.series.size()) {
-            var item: ref TrendSeries = this.series.get(index);
+            var item: ref TrendSeries = (try this.series.get(index));
             text.append(item.pid);
             text.append(" ");
             text.append(item.label);
@@ -296,16 +313,18 @@ public module system_monitor {
           if (col == 2) {
             cell_width = style.width - 2 - width * 2;
           }
-          out.append(padded(safe_text(a, text, cell_width), cell_width));
+          out.append(padded((try safe_text(a, text, cell_width)), cell_width));
           style.color(out, "\x1b[0m");
         }
         style.edge(out, "│", "|");
         out.append("\r\n");
       }
-    }
+    
+ return Result.Ok;
+}
 
     /* Displays the resource selector with only the active choice in bold. */
-    method header(a: const ref HeapAllocator, out: ref String, style: ref TableStyle, memory: bool) void throws IError {
+    method header(a: const ref HeapAllocator, out: ref String, style: ref TableStyle, memory: bool) Result<void> {
       var title = String("TOP 5 CPU HISTORY (%)  |  ");
       if (memory) {
         title = String("TOP 5 MEMORY HISTORY (RSS MiB)  |  ");
@@ -318,7 +337,7 @@ public module system_monitor {
       if (this.series.is_empty()) {
         title.append("  |  waiting");
       }
-      var text = padded(safe_text(a, title, style.width - 4), style.width - 4);
+      var text = padded((try safe_text(a, title, style.width - 4)), style.width - 4);
       style.edge(out, "│", "|");
       out.append(" ");
       for (var i: i64 = 0; i < text.length(); i = i + 1) {
@@ -328,28 +347,30 @@ public module system_monitor {
         if (i == selected + 3) {
           style.color(out, "\x1b[22m");
         }
-        out.append_char(text.at(i));
+        out.append_char((try text.at(i)));
       }
       style.color(out, "\x1b[0m");
       out.append(" ");
       style.edge(out, "│", "|");
       out.append("\r\n");
-    }
+    
+ return Result.Ok;
+}
 
     /* Renders the shared scale, time axis, and color legend for current leaders. */
-    method draw(a: const ref HeapAllocator, out: ref String, style: ref TableStyle, history: ref History, memory: bool, height: i64) void throws IError {
-      var peak = this.scale(history, memory);
+    method draw(a: const ref HeapAllocator, out: ref String, style: ref TableStyle, history: ref History, memory: bool, height: i64) Result<void> {
+      var peak = (try this.scale(history, memory));
       var canvas = DotCanvas(a, style.width - 13, height);
       for (var i = this.series.size(); i > 0; i = i - 1) {
-        this.trace(canvas, history, this.series.get(i - 1), memory, peak);
+        (try this.trace(canvas, history, (try this.series.get(i - 1)), memory, peak));
       }
       style.rule(out, 0, false);
-      this.header(a, out, style, memory);
+      (try this.header(a, out, style, memory));
       style.rule(out, 1, false);
       for (var row: i64 = 0; row < height; row = row + 1) {
-        this.plot_row(a, out, style, canvas, row, peak);
+        (try this.plot_row(a, out, style, canvas, row, peak));
       }
-      var begin = this.begin(history) - history.origin;
+      var begin = (try this.begin(history)) - history.origin;
       var axis = String("elapsed  +");
       axis.append(decimal(_convert<f64>(begin) / 1000.0));
       axis.append("s");
@@ -358,10 +379,12 @@ public module system_monitor {
       right.append("s");
       var left = padded(axis, style.width - 4 - right.length());
       left.append(right);
-      style.panel_line(a, out, left, false);
+      (try style.panel_line(a, out, left, false));
       style.rule(out, 1, false);
-      this.legend(a, out, style);
+      (try this.legend(a, out, style));
       style.rule(out, 2, false);
-    }
+    
+ return Result.Ok;
+}
   }
 }

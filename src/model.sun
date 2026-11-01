@@ -35,14 +35,14 @@ public module system_monitor {
       this.processes = Vec<Process>(alloc, 64);
     }
     /* Copies display measurements while keeping raw baselines in the live frame. */
-    method copy(a: const ref HeapAllocator) Frame throws IError {
+    method copy(a: const ref HeapAllocator) Result<Frame> {
       var out = Frame(a);
       out.timestamp = this.timestamp;
       out.elapsed = this.elapsed;
       out.total_memory = this.total_memory;
       out.inaccessible = this.inaccessible;
-      for (var i: i64 = 0; i < this.processes.size(); i = i + 1) {
-        var p: ref Process = this.processes.get(i);
+      for (var i: i64 = 0; i < (this.processes.size()); i = i + 1) {
+        var p: ref Process = (try this.processes.get(i));
         var q = Process();
         q.pid = p.pid;
         q.start = p.start;
@@ -53,16 +53,16 @@ public module system_monitor {
         q.label = p.label.clone(a);
         out.processes.push(q);
       }
-      return out;
+      return Result.Ok(out);
     }
     /* Estimates owned storage conservatively for history budgeting. */
-    method cost() i64 throws IError {
+    method cost() Result<i64> {
       var n: i64 = _sizeof<Frame>() + 128 + this.processes.capacity() * _sizeof<Process>();
-      for (var i: i64 = 0; i < this.processes.size(); i = i + 1) {
-        var p: ref Process = this.processes.get(i);
+      for (var i: i64 = 0; i < (this.processes.size()); i = i + 1) {
+        var p: ref Process = (try this.processes.get(i));
         n = n + 384 + p.exe.capacity() + p.args.capacity() + p.label.capacity();
       }
-      return n;
+      return Result.Ok(n);
     }
   }
 }

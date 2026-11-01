@@ -12,34 +12,36 @@ public module system_monitor {
       this.identities = Map<i64, i64>(a, 16);
     }
     /* Applies configured labels without carrying them across PID reuse. */
-    method apply(a: ref HeapAllocator, f: ref Frame) void throws IError {
+    method apply(a: ref HeapAllocator, f: ref Frame) Result<void> {
       if (not this.document.is_object()) {
-        return;
+        return Result.Ok;
       }
       for (var i: i64 = 0; i < f.processes.size(); i = i + 1) {
-        var p: ref Process = f.processes.get(i);
+        var p: ref Process = (try f.processes.get(i));
         var key = String("");
         key.append(p.pid);
         for (var k: i64 = 0; k < this.document.len(); k = k + 1) {
-          if (this.document.key_at(k).equals(key)) {
+          if ((try this.document.key_at(k)).equals(key)) {
             if (not this.bound and not this.identities.contains(p.pid)) {
               this.identities.insert(p.pid, p.start);
             }
-            if (this.identities.contains(p.pid) and this.identities.get(p.pid) == p.start) {
-              p.label = this.document.value_at(k).as_string().clone(a);
+            if (this.identities.contains(p.pid) and (try this.identities.get(p.pid)) == p.start) {
+              p.label = ((try try (try this.document.value_at(k)).as_string())).clone(a);
             }
             break;
           }
         }
       }
       this.bound = true;
-    }
+    
+ return Result.Ok;
+}
   }
 
   /* Derives a process label from its executable and ROS remapping arguments. */
-  function label_process(alloc: const ref HeapAllocator, p: ref Process) void throws IError {
+  function label_process(alloc: const ref HeapAllocator, p: ref Process) Result<void> {
     var parts = p.exe.split(alloc, "/");
-    p.label = parts.get(parts.size() - 1).clone(alloc);
+    p.label = (try parts.get(parts.size() - 1)).clone(alloc);
     if (p.label.is_empty()) {
       p.label = String("process");
     }
@@ -48,7 +50,7 @@ public module system_monitor {
     var ns = String("");
     var ros = false;
     for (var i: i64 = 0; i < args.size(); i = i + 1) {
-      var arg: ref String = args.get(i);
+      var arg: ref String = (try args.get(i));
       if (arg.equals_literal("--ros-args")) {
         ros = true;
         continue;
@@ -83,5 +85,7 @@ public module system_monitor {
     if (p.exe.contains("component_container")) {
       p.label.append(" [shared container]");
     }
-  }
+  
+ return Result.Ok;
+}
 }

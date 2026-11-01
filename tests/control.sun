@@ -16,20 +16,20 @@ public module system_monitor {
   extern "C" function test_waitpid(pid: i32, status: raw_ptr<i32>, flags: i32) i32 as "waitpid";
 
   /* Verifies stale identities fail and supported signals reach only the child. */
-  test_function signals_recheck_child_identity() {
+  test_function signals_recheck_child_identity() MonitorTestResult<void> {
     var a = make_heap_allocator();
     for (var i: i32 = 0; i < 2; i = i + 1) {
       var pid = unsafe { test_fork(); };
       if (pid == 0) {
         unsafe { test_sleep(10); test_exit(0); };
-        return;
+        return MonitorTestResult.Ok;
       }
-      std.test.assert(pid > 1, "child created");
-      var frame = collect(a, 0);
+      (try std.test.assert(pid > 1, "child created"));
+      var frame = (try collect(a, 0));
       var start: i64 = -1;
       for (var row: i64 = 0; row < frame.processes.size(); row = row + 1) {
-        if (frame.processes.get(row).pid == _convert<i64>(pid)) {
-          start = frame.processes.get(row).start;
+        if ((try frame.processes.get(row)).pid == _convert<i64>(pid)) {
+          start = (try frame.processes.get(row)).start;
         }
       }
       var stale = control_process(a, _convert<i64>(pid), start + 1, 15);
@@ -40,41 +40,45 @@ public module system_monitor {
       var sent = control_process(a, _convert<i64>(pid), start, signal);
       var status: i32 = 0;
       var reaped = unsafe { test_waitpid(pid, _address_of<i32>(status), 0); };
-      std.test.assert(start >= 0, "child identity available");
-      std.test.assert(
+      (try std.test.assert(start >= 0, "child identity available"));
+      (try std.test.assert(
         stale.equals_literal("Signal failed: process exited, changed, or permission denied"),
         "stale identity rejected"
-      );
-      std.test.assert_eq(reaped, pid);
-      std.test.assert_eq(status & 127, signal);
+      ));
+      (try std.test.assert_eq(reaped, pid));
+      (try std.test.assert_eq(status & 127, signal));
     }
-  }
+  
+ return MonitorTestResult.Ok;
+}
 
   /* Blocks replay, empty selections, special PIDs, and signalling the monitor. */
-  test_function process_actions_validate_targets() {
+  test_function process_actions_validate_targets() MonitorTestResult<void> {
     var a = make_heap_allocator();
-    var terminal = Terminal(a, false);
+    var terminal = (try Terminal(a, false));
     var options = Options();
     options.monitor = String("process");
     terminal.apply_key(b't', options);
-    terminal.perform_action(a, options);
-    std.test.assert(
+    (try terminal.perform_action(a, options));
+    (try std.test.assert(
       terminal.notice.equals_literal("Select a visible process before sending a signal"),
       "empty selection rejected"
-    );
+    ));
     options.replay = String("session.jsonl");
     terminal.apply_key(b'k', options);
-    terminal.perform_action(a, options);
-    std.test.assert(
+    (try terminal.perform_action(a, options));
+    (try std.test.assert(
       terminal.notice.equals_literal("Process actions are disabled during replay"),
       "replay rejected"
-    );
-    std.test.assert_eq(terminal.pending_signal, 0i32);
+    ));
+    (try std.test.assert_eq(terminal.pending_signal, 0i32));
     var group = control_process(a, 0, 0, 9);
     var init = control_process(a, 1, 0, 9);
     var own = control_process(a, _convert<i64>(unsafe { pm_getpid(); }), 0, 9);
-    std.test.assert(group.equals_literal("Cannot signal this PID"), "group rejected");
-    std.test.assert(init.equals_literal("Cannot signal this PID"), "init rejected");
-    std.test.assert(own.equals_literal("Cannot signal this PID"), "self rejected");
-  }
+    (try std.test.assert(group.equals_literal("Cannot signal this PID"), "group rejected"));
+    (try std.test.assert(init.equals_literal("Cannot signal this PID"), "init rejected"));
+    (try std.test.assert(own.equals_literal("Cannot signal this PID"), "self rejected"));
+  
+ return MonitorTestResult.Ok;
+}
 }

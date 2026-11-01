@@ -7,22 +7,22 @@ public module system_monitor {
   extern "C" function pm_isatty(fd: i32) i32 as "isatty";
 
   /* Copies native terminal settings into an aligned buffer. */
-  extern "C" function pm_tcgetattr(fd: i32, out: raw_ptr<u8>) i32 as "tcgetattr";
+  extern "C" function pm_tcgetattr(fd: i32, out: ref std.terminal.Termios) i32 as "tcgetattr";
 
   /* Applies previously captured or modified terminal settings. */
-  extern "C" function pm_tcsetattr(fd: i32, action: i32, data: raw_ptr<u8>) i32 as "tcsetattr";
+  extern "C" function pm_tcsetattr(fd: i32, action: i32, data: ref std.terminal.Termios) i32 as "tcsetattr";
 
   /* Disables native line editing for interactive key input. */
-  extern "C" function pm_cfmakeraw(data: raw_ptr<u8>) void as "cfmakeraw";
+  extern "C" function pm_cfmakeraw(data: ref std.terminal.Termios) void as "cfmakeraw";
 
   /* Queries native terminal geometry through the platform request code. */
-  extern "C" function pm_ioctl(fd: i32, request: u64, data: raw_ptr<u8>) i32 as "ioctl";
+  extern "C" function pm_ioctl(fd: i32, request: u64, ...) i32 as "ioctl";
 
   /* Reads bytes from a POSIX descriptor. */
-  extern "C" function pm_read(fd: i32, data: raw_ptr<u8>, count: u64) i64 as "read";
+  extern "C" function pm_read(fd: i32, data: raw_ptr<u8>, count: i64) i64 as "read";
 
   /* Writes bytes to a POSIX descriptor. */
-  extern "C" function pm_write(fd: i32, data: raw_ptr<u8>, count: u64) i64 as "write";
+  extern "C" function pm_write(fd: i32, data: raw_ptr<u8>, count: i64) i64 as "write";
 
   /* Installs a signal callback using the stdlib-compatible native declaration. */
   extern "C" function pm_signal(sig: i32, callback: i64) i64 as "signal";
@@ -42,7 +42,7 @@ public module system_monitor {
     var offset: i64 = 0;
     while (offset < s.length()) {
       var n = unsafe {
-        pm_write(1, _ptr_offset(s.bytes(), offset), _convert<u64>(s.length() - offset));
+        pm_write(1, _ptr_offset(s.bytes(), offset), s.length() - offset);
       };
       if (n <= 0) {
         break;

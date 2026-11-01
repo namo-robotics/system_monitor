@@ -28,13 +28,13 @@ public module system_monitor {
   }
 
   /* Draws bounded lines without allowing host data to emit terminal commands. */
-  function panel(a: ref HeapAllocator, terminal: ref Terminal, lines: ref Vec<String>, first: i64, name: const ref String) void throws IError {
-    terminal.size(a);
+  function panel(a: ref HeapAllocator, terminal: ref Terminal, lines: ref Vec<String>, first: i64, name: const ref String) Result<void> {
+    (try terminal.size(a));
     var out = String("");
     var count = lines.size();
     if (terminal.active) {
       out.append("\x1b[H\x1b[2J");
-      terminal.tabs(a, out, name);
+      (try terminal.tabs(a, out, name));
       count = terminal.rows - 2;
       if (count < 1) {
         count = 1;
@@ -48,11 +48,13 @@ public module system_monitor {
       if (width < 1) {
         width = 1;
       }
-      out.append(safe_text(a, lines.get(i), width));
+      out.append((try safe_text(a, (try lines.get(i)), width)));
       out.append("\r\n");
     }
-    output(out);
-  }
+    (try output(out));
+  
+ return Result.Ok;
+}
 
   /* Finds a monitor's position in the shared terminal and browser tab order. */
   function monitor_index(name: const ref String) i64 {
@@ -81,7 +83,7 @@ public module system_monitor {
   }
 
   /* Parses a Linux interface row, preserving names and rejecting short records. */
-  function parse_traffic(a: ref HeapAllocator, line: const ref String) Traffic throws IError {
+  function parse_traffic(a: ref HeapAllocator, line: const ref String) Result<Traffic> {
     var colon: i64 = -1;
     match line.rfind_char(b':') {
       Option.Some(n) => {
@@ -90,7 +92,7 @@ public module system_monitor {
       Option.None => {}
     };
     if (colon < 1) {
-      throw Error(1, "missing interface separator");
+      return Result.Error( Error(1, "missing interface separator"));
     }
     var traffic = Traffic();
     traffic.name = line.substr(a, 0, colon);
@@ -98,13 +100,13 @@ public module system_monitor {
     var rest = line.substr(a, colon + 1, line.length() - colon - 1);
     var parts = rest.split_whitespace(a);
     if (parts.size() < 16) {
-      throw Error(1, "short interface counters");
+      return Result.Error( Error(1, "short interface counters"));
     }
-    traffic.received = number(parts.get(0));
-    traffic.sent = number(parts.get(8));
-    traffic.errors = number(parts.get(2)) + number(parts.get(10));
-    traffic.drops = number(parts.get(3)) + number(parts.get(11));
-    return traffic;
+    traffic.received = (try number((try parts.get(0))));
+    traffic.sent = (try number((try parts.get(8))));
+    traffic.errors = (try number((try parts.get(2)))) + (try number((try parts.get(10))));
+    traffic.drops = (try number((try parts.get(3)))) + (try number((try parts.get(11))));
+    return Result.Ok(traffic);
   }
 
   /* Computes bytes per second only when a valid previous counter exists. */
@@ -117,14 +119,12 @@ public module system_monitor {
 
   /* Reads an optional sensor attribute without failing the entire view. */
   function attribute(a: ref HeapAllocator, path: const ref String) String {
-    try {
-      var file = path.clone(a);
-      var value = std.io.read_to_string(a, file);
-      value.trim();
-      return value;
-    } catch (e: ref IError) {
+    match std.io.read_to_string(a, path) {
+ SystemResult.Ok(value) => { value.trim(); return value; },
+ (e: const ref IError) => {
       return String("");
     }
+ };
   }
 
   /* Joins a sysfs directory and an attribute name. */
@@ -135,84 +135,91 @@ public module system_monitor {
     return path;
   }
 
-  /* Converts a readable Linux millidegree attribute to Celsius. */
-  function temperature_text(value: ref String) String {
-    try {
-      var degrees = _convert<f64>(number(value)) / 1000.0;
+  /** Formats a valid millidegree reading as Celsius. */
+  function format_temperature(value: ref String) Result<String> {
+      var degrees = _convert<f64>((try number(value))) / 1000.0;
       if (degrees < 0.0) {
         var text = String("-");
         text.append(decimal(-degrees));
-        return text;
+        return Result.Ok(text);
       }
-      return decimal(degrees);
-    } catch (e: ref IError) {
+      return Result.Ok(decimal(degrees));
+    
+  }
+
+  /* Converts a readable Linux millidegree attribute to Celsius. */
+  function temperature_text(value: ref String) String {
+    match format_temperature(value) {
+ Result.Ok(value) => { return value; },
+ (e: const ref IError) => {
       return String("N/A");
     }
+ };
   }
 
   /* Joins utility fields while preserving names that contain spaces. */
-  function joined_fields(a: const ref HeapAllocator, fields: ref Vec<String>, first: i64, last: i64) String throws IError {
+  function joined_fields(a: const ref HeapAllocator, fields: ref Vec<String>, first: i64, last: i64) Result<String> {
     var text = String("");
     for (var i = first; i < last; i = i + 1) {
       if (i > first) {
         text.append(" ");
       }
-      text.append(fields.get(i));
+      text.append((try fields.get(i)));
     }
-    return text;
+    return Result.Ok(text);
   }
 
   /* Parses POSIX df columns into byte counts and a separate mount name. */
-  function disk_row(a: ref HeapAllocator, line: const ref String) Json throws IError {
+  function disk_row(a: ref HeapAllocator, line: const ref String) Result<Json> {
     var fields = line.split_whitespace(a);
     for (var i: i64 = 1; i + 4 < fields.size(); i = i + 1) {
-      var capacity: ref String = fields.get(i + 3);
+      var capacity: ref String = (try fields.get(i + 3));
       if (not capacity.ends_with("%") and not capacity.equals_literal("-")) {
         continue;
       }
-      var total = number(fields.get(i));
-      var used = number(fields.get(i + 1));
-      var available = number(fields.get(i + 2));
+      var total = (try number((try fields.get(i))));
+      var used = (try number((try fields.get(i + 1))));
+      var available = (try number((try fields.get(i + 2))));
       var percent: i64 = -1;
       if (capacity.ends_with("%")) {
         var percent_text = capacity.substr(a, 0, capacity.length() - 1);
-        percent = number(percent_text);
+        percent = (try number(percent_text));
         if (percent < 0) {
-          throw Error(1, "invalid filesystem percentage");
+          return Result.Error( Error(1, "invalid filesystem percentage"));
         }
       }
       if (total < 0 or used < 0) {
-        throw Error(1, "invalid filesystem counters");
+        return Result.Error( Error(1, "invalid filesystem counters"));
       }
       var row = create_json_object(a);
-      row.set(String("filesystem"), Json(joined_fields(a, fields, 0, i)));
-      row.set(String("mount"), Json(joined_fields(a, fields, i + 4, fields.size())));
-      row.set(String("total_bytes"), Json(total * 1024));
-      row.set(String("used_bytes"), Json(used * 1024));
-      row.set(String("available_bytes"), Json(available * 1024));
+      (try row.set(String("filesystem"), Json((try joined_fields(a, fields, 0, i)))));
+      (try row.set(String("mount"), Json((try joined_fields(a, fields, i + 4, fields.size())))));
+      (try row.set(String("total_bytes"), Json(total * 1024)));
+      (try row.set(String("used_bytes"), Json(used * 1024)));
+      (try row.set(String("available_bytes"), Json(available * 1024)));
       if (percent < 0) {
-        row.set(String("used_percent"), Json());
+        (try row.set(String("used_percent"), Json()));
       } else {
-        row.set(String("used_percent"), Json(percent));
+        (try row.set(String("used_percent"), Json(percent)));
       }
-      return row;
+      return Result.Ok(row);
     }
-    throw Error(1, "malformed filesystem row");
+    return Result.Error( Error(1, "malformed filesystem row"));
   }
 
   /* Preserves the systemd unit identity, state columns and description. */
-  function service_row(a: ref HeapAllocator, line: const ref String) Json throws IError {
+  function service_row(a: ref HeapAllocator, line: const ref String) Result<Json> {
     var fields = line.split_whitespace(a);
-    if (fields.size() < 4 or not fields.get(0).ends_with(".service")) {
-      throw Error(1, "malformed service row");
+    if (fields.size() < 4 or not (try fields.get(0)).ends_with(".service")) {
+      return Result.Error( Error(1, "malformed service row"));
     }
     var row = create_json_object(a);
-    row.set(String("unit"), create_json_string(a, fields.get(0)));
-    row.set(String("load"), create_json_string(a, fields.get(1)));
-    row.set(String("active"), create_json_string(a, fields.get(2)));
-    row.set(String("sub"), create_json_string(a, fields.get(3)));
-    row.set(String("description"), Json(joined_fields(a, fields, 4, fields.size())));
-    return row;
+    (try row.set(String("unit"), create_json_string(a, (try fields.get(0)))));
+    (try row.set(String("load"), create_json_string(a, (try fields.get(1)))));
+    (try row.set(String("active"), create_json_string(a, (try fields.get(2)))));
+    (try row.set(String("sub"), create_json_string(a, (try fields.get(3)))));
+    (try row.set(String("description"), Json((try joined_fields(a, fields, 4, fields.size())))));
+    return Result.Ok(row);
   }
 
   /* Encodes missing rate baselines as null instead of a fabricated zero. */
@@ -225,33 +232,36 @@ public module system_monitor {
 
   /* Converts signed millidegrees to Celsius, keeping unreadable values null. */
   function degrees_json(value: const ref String) Json {
-    try {
-      return Json(_convert<f64>(number(value)) / 1000.0);
-    } catch (e: ref IError) {
+    match number(value) {
+ Result.Ok(value) => { return Json(_convert<f64>(value) / 1000.0); },
+ (e: const ref IError) => {
       return Json();
     }
+ };
   }
 
   /* Describes a sensor without treating a missing threshold as a healthy reading. */
-  function sensor_row(a: ref HeapAllocator, name: const ref String, value: const ref String, critical: const ref String) Json throws IError {
+  function sensor_row(a: ref HeapAllocator, name: const ref String, value: const ref String, critical: const ref String) Result<Json> {
     var row = create_json_object(a);
-    row.set(String("sensor"), create_json_string(a, name));
-    row.set(String("celsius"), degrees_json(value));
-    row.set(String("critical_celsius"), degrees_json(critical));
+    (try row.set(String("sensor"), create_json_string(a, name)));
+    (try row.set(String("celsius"), degrees_json(value)));
+    (try row.set(String("critical_celsius"), degrees_json(critical)));
     var status = String("unavailable");
-    try {
-      var current = number(value);
+    match number(value) {
+ Result.Ok(value) => { var current = value;
       status = String("no threshold");
-      try {
-        var limit = number(critical);
+      match number(critical) {
+ Result.Ok(value) => { var limit = value;
         status = String("normal");
         if (current >= limit) {
           status = String("critical");
-        }
-      } catch (e: ref IError) {}
-    } catch (e: ref IError) {}
-    row.set(String("status"), Json(status));
-    return row;
+        } },
+ (e: const ref IError) => {}
+ }; },
+ (e: const ref IError) => {}
+ };
+    (try row.set(String("status"), Json(status)));
+    return Result.Ok(row);
   }
 
   /* Owns the latest resource rows and previous interface counters. */
@@ -282,106 +292,113 @@ public module system_monitor {
     }
 
     /* Runs a fixed read-only system utility without shell interpolation. */
-    method command(a: ref HeapAllocator, program: const ref String, arguments: const ref String) void throws IError {
+    method command(a: ref HeapAllocator, program: const ref String, arguments: const ref String) Result<void> {
       var cmd = std.process.Command(a, program);
       var parts = arguments.split_whitespace(a);
       for (var i: i64 = 0; i < parts.size(); i = i + 1) {
-        cmd.add_arg(parts.get(i));
+        cmd.add_arg((try parts.get(i)));
       }
-      var result = cmd.output();
+      var result = (try cmd.output());
       var rows = result.stdout().split(a, 10u8);
       for (var i: i64 = 0; i < rows.size(); i = i + 1) {
-        if (not rows.get(i).is_empty()) {
-          this.lines.push(rows.get(i).clone(a));
+        if (not (try rows.get(i)).is_empty()) {
+          this.lines.push((try rows.get(i)).clone(a));
         }
       }
-      if (result.status() != 0) {
+      if ((try result.status()) != 0) {
         this.message = String("Unavailable: system utility could not complete.");
         this.lines.push(this.message.clone(a));
         var errors = result.stderr().split(a, 10u8);
         if (errors.size() > 0) {
-          this.lines.push(errors.get(0).clone(a));
+          this.lines.push((try errors.get(0)).clone(a));
           this.message.append(" ");
-          this.message.append(errors.get(0));
+          this.message.append((try errors.get(0)));
         }
       }
-    }
+    
+ return Result.Ok;
+}
 
     /* Reads filesystem capacity in portable POSIX blocks. */
-    method disks(a: ref HeapAllocator) void throws IError {
+    method disks(a: ref HeapAllocator) Result<void> {
       this.lines.push(String("Filesystem usage (1024-byte blocks); Available excludes reserved space."));
       this.lines.push(String(""));
-      this.command(a, String("df"), String("-Pk"));
+      (try this.command(a, String("df"), String("-Pk")));
       for (var i: i64 = 3; i < this.lines.size(); i = i + 1) {
-        try {
-          this.rows.push(disk_row(a, this.lines.get(i)));
-        } catch (e: ref IError) {}
+        match disk_row(a, (try this.lines.get(i))) {
+ Result.Ok(value) => { this.rows.push(value); },
+ (e: const ref IError) => {}
+ };
       }
       if (this.rows.len() == 0 and this.message.is_empty()) {
         this.message = String("No filesystem measurements available.");
       }
-    }
+    
+ return Result.Ok;
+}
 
     /* Lists all loaded system services, including inactive and failed units. */
-    method services(a: ref HeapAllocator) void throws IError {
+    method services(a: ref HeapAllocator) Result<void> {
       if (_target_is("linux")) {
         this.lines.push(String("System services: ACTIVE / SUB / LOAD / UNIT"));
         this.lines.push(String("Includes inactive loaded units; failed units show 'failed'."));
-        this.command(a, String("systemctl"), String("list-units --type=service --all --no-pager --plain --no-legend"));
+        (try this.command(a, String("systemctl"), String("list-units --type=service --all --no-pager --plain --no-legend")));
         for (var i: i64 = 2; i < this.lines.size(); i = i + 1) {
-          var fields = this.lines.get(i).split_whitespace(a);
-          if (fields.size() >= 4 and fields.get(0).ends_with(".service")) {
-            this.rows.push(service_row(a, this.lines.get(i)));
-            var row = padded(fields.get(2), 11);
-            row.append(padded(fields.get(3), 14));
-            row.append(padded(fields.get(1), 11));
-            row.append(fields.get(0));
-            var line: ref String = this.lines.get(i);
+          var fields = (try this.lines.get(i)).split_whitespace(a);
+          if (fields.size() >= 4 and (try fields.get(0)).ends_with(".service")) {
+            this.rows.push((try service_row(a, (try this.lines.get(i)))));
+            var row = padded((try fields.get(2)), 11);
+            row.append(padded((try fields.get(3)), 14));
+            row.append(padded((try fields.get(1)), 11));
+            row.append((try fields.get(0)));
+            var line: ref String = (try this.lines.get(i));
             line = row;
           }
         }
       } else {
         this.lines.push(String("Launch agents in the current launchd domain: PID / last exit status / label"));
-        this.command(a, String("launchctl"), String("list"));
+        (try this.command(a, String("launchctl"), String("list")));
         this.message = String("Structured service metrics require systemd on Linux.");
       }
-    }
+    
+ return Result.Ok;
+}
 
     /* Reads per-interface traffic and calculates rates using actual elapsed time. */
-    method network(a: ref HeapAllocator, now: i64) void throws IError {
+    method network(a: ref HeapAllocator, now: i64) Result<void> {
       if (not _target_is("linux")) {
         this.lines.push(String("Interface totals from netstat; bytes, packets, errors and drops."));
-        this.command(a, String("netstat"), String("-ibn"));
+        (try this.command(a, String("netstat"), String("-ibn")));
         this.message = String("Structured network metrics require Linux procfs.");
-        return;
+        return Result.Ok;
       }
       this.lines.push(String("INTERFACE  STATE  RX KiB/s  TX KiB/s  RX MiB  TX MiB  ERRORS  DROPS"));
       this.lines.push(String("N/A rates need a baseline or indicate a counter reset."));
-      var text = std.io.read_to_string(a, "/proc/net/dev");
+      var text = (try std.io.read_to_string(a, "/proc/net/dev"));
       var rows = text.split(a, 10u8);
       var current = Vec<Traffic>(a, 16);
       for (var i: i64 = 2; i < rows.size(); i = i + 1) {
-        if (rows.get(i).is_empty()) {
+        if ((try rows.get(i)).is_empty()) {
           continue;
         }
-        var t = parse_traffic(a, rows.get(i));
+        var t = (try parse_traffic(a, (try rows.get(i))));
         var rx: f64 = -1.0;
         var tx: f64 = -1.0;
         for (var j: i64 = 0; j < this.previous.size(); j = j + 1) {
-          var old: ref Traffic = this.previous.get(j);
+          var old: ref Traffic = (try this.previous.get(j));
           if (old.name.equals(t.name)) {
             rx = traffic_rate(old.received, t.received, now - this.elapsed);
             tx = traffic_rate(old.sent, t.sent, now - this.elapsed);
           }
         }
         var record = create_json_object(a);
-        record.set(String("interface"), create_json_string(a, t.name));
-        record.set(String("rx_bytes_per_sec"), rate_json(rx));
-        record.set(String("tx_bytes_per_sec"), rate_json(tx));
-        record.set(String("rx_bytes"), Json(t.received));
-        record.set(String("tx_bytes"), Json(t.sent));
-        record.set(String("errors"), Json(t.errors));
-        record.set(String("drops"), Json(t.drops));
+        (try record.set(String("interface"), create_json_string(a, t.name)));
+        (try record.set(String("rx_bytes_per_sec"), rate_json(rx)));
+        (try record.set(String("tx_bytes_per_sec"), rate_json(tx)));
+        (try record.set(String("rx_bytes"), Json(t.received)));
+        (try record.set(String("tx_bytes"), Json(t.sent)));
+        (try record.set(String("errors"), Json(t.errors)));
+        (try record.set(String("drops"), Json(t.drops)));
         if (rx >= 0.0) {
           rx = rx / 1024.0;
         }
@@ -395,7 +412,7 @@ public module system_monitor {
         if (state.is_empty()) {
           state = String("N/A");
         }
-        record.set(String("state"), create_json_string(a, state));
+        (try record.set(String("state"), create_json_string(a, state)));
         this.rows.push(record);
         var row = t.name.clone(a);
         row.append("  ");
@@ -417,45 +434,37 @@ public module system_monitor {
       }
       this.previous = current;
       this.elapsed = now;
-    }
+    
+ return Result.Ok;
+}
 
     /* Adds a sensor with its optional critical threshold. */
-    method sensor(a: ref HeapAllocator, name: String, path: const ref String, critical_path: const ref String) void throws IError {
+    method sensor(a: ref HeapAllocator, name: String, path: const ref String, critical_path: const ref String) Result<void> {
       var value = attribute(a, path);
       var critical = attribute(a, critical_path);
-      this.rows.push(sensor_row(a, name, value, critical));
+      this.rows.push((try sensor_row(a, name, value, critical)));
       var row = name;
       row.append("  ");
       row.append(temperature_text(value));
       row.append(" C  critical ");
       row.append(temperature_text(critical));
       row.append(" C");
-      try {
-        if (number(value) >= number(critical)) {
-          row.append("  CRITICAL");
-        }
-      } catch (e: ref IError) {}
+      match number(critical) {
+ Result.Ok(limit) => { match number(value) { Result.Ok(current) => { if (current >= limit) { row.append("  CRITICAL"); } }, (e: const ref IError) => {} }; },
+ (e: const ref IError) => {}
+ };
       this.lines.push(row);
-    }
+    
+ return Result.Ok;
+}
 
-    /* Discovers Linux hardware sensors and falls back to thermal zones. */
-    method temperatures(a: ref HeapAllocator) void throws IError {
-      this.lines.push(String("SENSOR  TEMPERATURE  CRITICAL THRESHOLD"));
-      if (not _target_is("linux")) {
-        this.message = String("Unavailable: macOS does not expose temperatures through a supported public API.");
-        this.lines.push(this.message.clone(a));
-        return;
-      }
-      var sensors: i64 = 0;
-      if (std.io.exists("/sys/class/hwmon")) {
-        var devices = std.io.read_dir(a, "/sys/class/hwmon");
-        for (var i: i64 = 0; i < devices.size(); i = i + 1) {
-          var base = resource_path(a, String("/sys/class/hwmon"), devices.get(i).name());
-          try {
+    /** Collects readable temperature attributes from one hardware monitor. */
+  method hwmon_device(a: ref HeapAllocator, base: const ref String, device: const ref String) Result<i64> {
+ var sensors: i64 = 0;
             var chip = attribute(a, resource_path(a, base, String("name")));
-            var files = std.io.read_dir(a, base);
+            var files = (try std.io.read_dir(a, base));
             for (var j: i64 = 0; j < files.size(); j = j + 1) {
-              var name: ref String = files.get(j).name();
+              var name: ref String = (try files.get(j)).name();
               if (not name.starts_with("temp") or not name.ends_with("_input")) {
                 continue;
               }
@@ -466,30 +475,50 @@ public module system_monitor {
               if (label.is_empty()) {
                 label = stem.clone(a);
               }
-              var title = devices.get(i).name().clone(a);
+              var title = device.clone(a);
               title.append("/");
               title.append(chip);
               title.append("/");
               title.append(label);
               var crit_name = stem.clone(a);
               crit_name.append("_crit");
-              this.sensor(a, title, resource_path(a, base, name), resource_path(a, base, crit_name));
+              (try this.sensor(a, title, resource_path(a, base, name), resource_path(a, base, crit_name)));
               sensors = sensors + 1;
             }
-          } catch (e: ref IError) {}
+          
+ return Result.Ok(sensors);
+  }
+
+  /* Discovers Linux hardware sensors and falls back to thermal zones. */
+    method temperatures(a: ref HeapAllocator) Result<void> {
+      this.lines.push(String("SENSOR  TEMPERATURE  CRITICAL THRESHOLD"));
+      if (not _target_is("linux")) {
+        this.message = String("Unavailable: macOS does not expose temperatures through a supported public API.");
+        this.lines.push(this.message.clone(a));
+        return Result.Ok;
+      }
+      var sensors: i64 = 0;
+      if (std.io.exists("/sys/class/hwmon")) {
+        var devices = (try std.io.read_dir(a, "/sys/class/hwmon"));
+        for (var i: i64 = 0; i < devices.size(); i = i + 1) {
+          var base = resource_path(a, String("/sys/class/hwmon"), (try devices.get(i)).name());
+          match this.hwmon_device(a, base, (try devices.get(i)).name()) {
+ Result.Ok(value) => { sensors = sensors + value; },
+ (e: const ref IError) => {}
+ };
         }
       }
       if (sensors == 0 and std.io.exists("/sys/class/thermal")) {
-        var zones = std.io.read_dir(a, "/sys/class/thermal");
+        var zones = (try std.io.read_dir(a, "/sys/class/thermal"));
         for (var i: i64 = 0; i < zones.size(); i = i + 1) {
-          if (not zones.get(i).name().starts_with("thermal_zone")) {
+          if (not (try zones.get(i)).name().starts_with("thermal_zone")) {
             continue;
           }
-          var base = resource_path(a, String("/sys/class/thermal"), zones.get(i).name());
-          var label = zones.get(i).name().clone(a);
+          var base = resource_path(a, String("/sys/class/thermal"), (try zones.get(i)).name());
+          var label = (try zones.get(i)).name().clone(a);
           label.append("/");
           label.append(attribute(a, resource_path(a, base, String("type"))));
-          this.sensor(a, label, resource_path(a, base, String("temp")), String(""));
+          (try this.sensor(a, label, resource_path(a, base, String("temp")), String("")));
           sensors = sensors + 1;
         }
       }
@@ -497,38 +526,49 @@ public module system_monitor {
         this.message = String("Unavailable: no readable hardware temperature sensors were exposed by this host.");
         this.lines.push(this.message.clone(a));
       }
-    }
+    
+ return Result.Ok;
+}
 
-    /* Collects one view and keeps failures visible without exiting the monitor. */
+    /** Collects the selected resource view and propagates unavailable data. */
+  method collect_view(a: ref HeapAllocator, name: const ref String, now: i64) Result<void> {
+        if (name.equals_literal("disk")) {
+          (try this.disks(a));
+        } else if (name.equals_literal("service")) {
+          (try this.services(a));
+        } else if (name.equals_literal("network")) {
+          (try this.network(a, now));
+        } else if (name.equals_literal("temperature")) {
+          (try this.temperatures(a));
+        }
+      
+  
+ return Result.Ok;
+}
+
+  /* Collects one view and keeps failures visible without exiting the monitor. */
     method sample(a: ref HeapAllocator, name: const ref String, now: i64) void {
       this.lines = Vec<String>(a, 32);
       this.rows = create_json_array(a);
       this.message = String("");
-      try {
-        if (name.equals_literal("disk")) {
-          this.disks(a);
-        } else if (name.equals_literal("service")) {
-          this.services(a);
-        } else if (name.equals_literal("network")) {
-          this.network(a, now);
-        } else if (name.equals_literal("temperature")) {
-          this.temperatures(a);
-        }
-      } catch (e: ref IError) {
+      match this.collect_view(a, name, now) {
+ Result.Ok => {  },
+ (e: const ref IError) => {
         var message = String("Unavailable: ");
         message.append(e.message());
         this.message = message.clone(a);
         this.lines.push(message);
       }
+ };
       this.samples = this.samples + 1;
     }
 
     /* Renders a scrollable page while preserving the title and navigation hints. */
-    method draw(a: ref HeapAllocator, terminal: ref Terminal, name: const ref String) void throws IError {
+    method draw(a: ref HeapAllocator, terminal: ref Terminal, name: const ref String) Result<void> {
       if (terminal.paused) {
-        return;
+        return Result.Ok;
       }
-      terminal.size(a);
+      (try terminal.size(a));
       var page = Vec<String>(a, 32);
       var title = String("SYSTEM MONITOR / ");
       title.append(name);
@@ -557,14 +597,16 @@ public module system_monitor {
         visible = this.lines.size();
       }
       for (var i = first; i < this.lines.size() and i < first + visible; i = i + 1) {
-        page.push(this.lines.get(i).clone(a));
+        page.push((try this.lines.get(i)).clone(a));
       }
       var footer = String("Rows ");
       footer.append(first + 1);
       footer.append(" / ");
       footer.append(this.lines.size());
       page.push(footer);
-      panel(a, terminal, page, 0, name);
-    }
+      (try panel(a, terminal, page, 0, name));
+    
+ return Result.Ok;
+}
   }
 }

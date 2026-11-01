@@ -16,35 +16,37 @@ public module system_monitor {
       this.frames = Vec<Frame>(alloc, 16);
     }
     /* Retains a sample and evicts the oldest frames when limits are exceeded. */
-    method add(frame: Frame) void throws IError {
+    method add(frame: Frame) Result<void> {
       var latest = frame.elapsed;
       if (this.origin < 0) {
         this.origin = latest;
       }
       this.latest = latest;
-      var cost = frame.cost();
-      while (this.frames.size() > 0) {
-        if (latest - this.frames.get(0).elapsed <= this.duration and this.bytes + cost <= this.limit) {
+      var cost = (try frame.cost());
+      while ((this.frames.size()) > 0) {
+        if (latest - (try this.frames.get(0)).elapsed <= this.duration and this.bytes + cost <= this.limit) {
           break;
         }
-        this.bytes = this.bytes - this.frames.get(0).cost();
-        var removed = this.frames.remove(0);
+        this.bytes = this.bytes - ((try (try this.frames.get(0)).cost()));
+        var removed = (try this.frames.remove(0));
         this.evicted = true;
       }
       // An oversized frame remains available to the current view, but is not retained.
       if (cost > this.limit) {
         this.evicted = true;
-        return;
+        return Result.Ok;
       }
       this.bytes = this.bytes + cost;
       this.frames.push(frame);
-    }
+    
+ return Result.Ok;
+}
     /* Returns the elapsed time covered by retained samples. */
-    method window() i64 throws IError {
-      if (this.frames.size() < 2) {
-        return 0;
+    method window() Result<i64> {
+      if ((this.frames.size()) < 2) {
+        return Result.Ok(0);
       }
-      return this.frames.get(this.frames.size() - 1).elapsed - this.frames.get(0).elapsed;
+      return Result.Ok((try this.frames.get((this.frames.size()) - 1)).elapsed - (try this.frames.get(0)).elapsed);
     }
   }
 }
