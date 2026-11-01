@@ -200,7 +200,7 @@ public module system_monitor {
     }
     for (var i: i32 = 0; i < argc and pos < end; i = i + 1) {
       while (pos < end and (try buffer_value(data, pos)) != 0u8) {
-        out.append_chartry buffer_value(data, pos);
+        out.append_char(try buffer_value(data, pos));
         pos = pos + 1;
       }
       out.append_char(0u8);
@@ -218,7 +218,7 @@ public module system_monitor {
     task.fill(0);
     var n = unsafe { pm_pidinfo(pid, 4, 0, task.raw_data(), 96); };
     if (n == 96) {
-      p.rss = _convert<i64>try buffer_value(task, 1);
+      p.rss = _convert<i64>(try buffer_value(task, 1));
       p.ticks = _convert<i64>((try buffer_value(task, 2)) + (try buffer_value(task, 3)));
     }
     var path = ContiguousBuffer<u8>(a, 4096);

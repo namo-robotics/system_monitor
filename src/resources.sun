@@ -57,7 +57,7 @@ public module system_monitor {
       if (width < 1) {
         width = 1;
       }
-      out.appendtry safe_text(a, try lines.get(i), width);
+      out.append(try safe_text(a, try lines.get(i), width));
       out.append("\r\n");
     }
     (output(out));
@@ -111,10 +111,10 @@ public module system_monitor {
     if (parts.size() < 16) {
       return Result.Error(Error(1, "short interface counters"));
     }
-    traffic.received = try numbertry parts.get(0);
-    traffic.sent = try numbertry parts.get(8);
-    traffic.errors = (try numbertry parts.get(2)) + (try numbertry parts.get(10));
-    traffic.drops = (try numbertry parts.get(3)) + (try numbertry parts.get(11));
+    traffic.received = try number(try parts.get(0));
+    traffic.sent = try number(try parts.get(8));
+    traffic.errors = (try number(try parts.get(2))) + (try number(try parts.get(10)));
+    traffic.drops = (try number(try parts.get(3))) + (try number(try parts.get(11)));
     return Result.Ok(traffic);
   }
 
@@ -154,7 +154,7 @@ public module system_monitor {
 
   /** Formats a valid millidegree reading as Celsius. */
   function format_temperature(value: ref String) Result<String> {
-    var degrees = _convert<f64>try number(value) / 1000.0;
+    var degrees = _convert<f64>(try number(value)) / 1000.0;
     if (degrees < 0.0) {
       var text = String("-");
       text.append(decimal(-degrees));
@@ -187,7 +187,7 @@ public module system_monitor {
       if (i > first) {
         text.append(" ");
       }
-      text.appendtry vector_read(fields, i);
+      text.append(try vector_read(fields, i));
     }
     return Result.Ok(text);
   }
@@ -200,9 +200,9 @@ public module system_monitor {
       if (not capacity.ends_with("%") and not capacity.equals_literal("-")) {
         continue;
       }
-      var total = try numbertry vector_read(fields, i);
-      var used = try numbertry vector_read(fields, i + 1);
-      var available = try numbertry vector_read(fields, i + 2);
+      var total = try number(try vector_read(fields, i));
+      var used = try number(try vector_read(fields, i + 1));
+      var available = try number(try vector_read(fields, i + 2));
       var percent: i64 = -1;
       if (capacity.ends_with("%")) {
         var percent_text = try capacity.substr(a, 0, capacity.length() - 1);
@@ -215,8 +215,8 @@ public module system_monitor {
         return Result.Error(Error(1, "invalid filesystem counters"));
       }
       var row = create_json_object(a);
-      try row.set(String("filesystem"), Jsontry joined_fields(a, fields, 0, i));
-      try row.set(String("mount"), Jsontry joined_fields(a, fields, i + 4, fields.size()));
+      try row.set(String("filesystem"), Json(try joined_fields(a, fields, 0, i)));
+      try row.set(String("mount"), Json(try joined_fields(a, fields, i + 4, fields.size())));
       try row.set(String("total_bytes"), Json(total * 1024));
       try row.set(String("used_bytes"), Json(used * 1024));
       try row.set(String("available_bytes"), Json(available * 1024));
@@ -241,7 +241,7 @@ public module system_monitor {
     try row.set(String("load"), create_json_string(a, try vector_read(fields, 1)));
     try row.set(String("active"), create_json_string(a, try vector_read(fields, 2)));
     try row.set(String("sub"), create_json_string(a, try vector_read(fields, 3)));
-    try row.set(String("description"), Jsontry joined_fields(a, fields, 4, fields.size()));
+    try row.set(String("description"), Json(try joined_fields(a, fields, 4, fields.size())));
     return Result.Ok(row);
   }
 
@@ -334,7 +334,7 @@ public module system_monitor {
       var cmd = std.process.Command(a, program);
       var parts = arguments.split_whitespace(a);
       for (var i: i64 = 0; i < parts.size(); i = i + 1) {
-        cmd.add_argtry parts.get(i);
+        cmd.add_arg(try parts.get(i));
       }
       var result = try cmd.output();
       var rows = result.stdout().split(a, 10u8);
@@ -350,7 +350,7 @@ public module system_monitor {
         if (errors.size() > 0) {
           this.lines.push((try vector_read(errors, 0)).clone(a));
           this.message.append(" ");
-          this.message.appendtry vector_read(errors, 0);
+          this.message.append(try vector_read(errors, 0));
         }
       }
 
@@ -397,7 +397,7 @@ public module system_monitor {
             var row = padded(try vector_read(fields, 2), 11);
             row.append(padded(try vector_read(fields, 3), 14));
             row.append(padded(try vector_read(fields, 1), 11));
-            row.appendtry vector_read(fields, 0);
+            row.append(try vector_read(fields, 0));
             line = row;
             try this.rows.push(parsed);
           }
@@ -500,7 +500,7 @@ public module system_monitor {
     ) Result<void> {
       var value = attribute(a, path);
       var critical = attribute(a, critical_path);
-      try this.rows.pushtry sensor_row(a, name, value, critical);
+      try this.rows.push(try sensor_row(a, name, value, critical));
       var row = name;
       row.append("  ");
       row.append(temperature_text(value));

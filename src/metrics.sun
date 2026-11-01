@@ -37,7 +37,7 @@ public module system_monitor {
         p.memory = _convert<f64>(p.rss) * 100.0 / _convert<f64>(frame.total_memory);
       }
       if (index.contains(p.pid)) {
-        var old: ref Process = try previous.processes.gettry index.get(p.pid);
+        var old: ref Process = try previous.processes.get(try index.get(p.pid));
         if (old.start == p.start) {
           p.cpu = cpu_percent(
             old.ticks,

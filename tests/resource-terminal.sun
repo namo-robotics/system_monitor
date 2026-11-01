@@ -23,9 +23,9 @@ public module system_monitor {
     var a = make_heap_allocator();
     var history = ResourceHistory(a);
     history.duration = 1000;
-    try history.addtry resource_test_frame(a, 0, true);
-    try history.addtry resource_test_frame(a, 500, false);
-    try history.addtry resource_test_frame(a, 1000, true);
+    try history.add(try resource_test_frame(a, 0, true));
+    try history.add(try resource_test_frame(a, 500, false));
+    try history.add(try resource_test_frame(a, 1000, true));
     var canvas = DotCanvas(a, 11, 2);
     try history.trace(canvas, String("disk"), String("root"), false, 0, 0.0, 100.0, 500);
     try std.test.assert_eq(try buffer_value(canvas.masks, 5), 0i64);
@@ -48,15 +48,15 @@ public module system_monitor {
     var history = ResourceHistory(a);
     history.duration = 1000;
     history.limit = 500;
-    try history.addtry resource_test_frame(a, 0, true);
-    try history.addtry resource_test_frame(a, 500, true);
-    try history.addtry resource_test_frame(a, 1000, true);
+    try history.add(try resource_test_frame(a, 0, true));
+    try history.add(try resource_test_frame(a, 500, true));
+    try history.add(try resource_test_frame(a, 1000, true));
     try std.test.assert_eq(history.frames.size(), 2i64);
     try std.test.assert(history.bytes <= history.limit, "memory bounded");
-    try history.addtry resource_test_frame(a, 3000, true);
+    try history.add(try resource_test_frame(a, 3000, true));
     try std.test.assert_eq(history.frames.size(), 1i64);
     history.limit = 1;
-    try history.addtry resource_test_frame(a, 4000, true);
+    try history.add(try resource_test_frame(a, 4000, true));
     try std.test.assert_eq(history.frames.size(), 0i64);
 
     return MonitorTestResult.Ok;
@@ -74,7 +74,8 @@ public module system_monitor {
     );
     var cold = try resource_frame(a, data, String("temperature"), 0);
     try std.test.assert(
-      (try vector_read(cold.readings, 0)).first_valid and not (try vector_read(cold.readings, 0)).second_valid,
+      (try vector_read(cold.readings, 0)).first_valid and
+        not (try vector_read(cold.readings, 0)).second_valid,
       "nullable threshold"
     );
     try std.test.assert_eq((try vector_read(cold.readings, 0)).first, -12.5);
@@ -119,7 +120,7 @@ public module system_monitor {
         "[{\"sensor\":\"cold\",\"celsius\":-12.5,\"critical_celsius\":80,\"status\":\"normal\"},{\"sensor\":\"hot\",\"celsius\":90,\"critical_celsius\":80,\"status\":\"critical\"}]"
       )
     );
-    try view.history.addtry resource_frame(a, data, o.monitor, 0);
+    try view.history.add(try resource_frame(a, data, o.monitor, 0));
     terminal.selected = String("hot");
     var text = try view.render(a, data, terminal, o);
     try std.test.assert_eq(terminal.selected_row, 1i64);

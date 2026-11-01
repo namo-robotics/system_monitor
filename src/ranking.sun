@@ -17,7 +17,7 @@ public module system_monitor {
         var j = i;
         while (j >= gap) {
           var p: ref Process = try f.processes.get(value);
-          var q: ref Process = try f.processes.gettry vector_value(order, j - gap);
+          var q: ref Process = try f.processes.get(try vector_value(order, j - gap));
           var pv: f64 = p.cpu;
           var qv: f64 = q.cpu;
           if (memory) {

@@ -144,7 +144,7 @@ public module system_monitor {
           continue;
         }
         if (colored) {
-          out.append(trend_colortry buffer_value(this.owners, index));
+          out.append(trend_color(try buffer_value(this.owners, index)));
         }
         out.append_char(226u8);
         out.append_char(_convert<u8>(160 + mask / 64));
@@ -173,7 +173,7 @@ public module system_monitor {
       var order = try ranking(a, frame, memory);
       var next = Vec<TrendSeries>(a, 5);
       for (var i: i64 = 0; i < order.size() and next.size() < 5; i = i + 1) {
-        var process: ref Process = try frame.processes.gettry order.get(i);
+        var process: ref Process = try frame.processes.get(try order.get(i));
         if ((memory and process.rss < 0) or (not memory and process.cpu < 0.0)) {
           continue;
         }
@@ -377,7 +377,7 @@ public module system_monitor {
         if (i == selected + 3) {
           style.color(out, "\x1b[22m");
         }
-        out.append_chartry text.at(i);
+        out.append_char(try text.at(i));
       }
       style.color(out, "\x1b[0m");
       out.append(" ");

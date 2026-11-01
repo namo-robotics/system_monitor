@@ -32,7 +32,13 @@ public module acceptance {
     var settings = std.terminal.Termios();
     var status = unsafe { tcgetattr(fd, settings); };
     if (status == 0) {
-      unsafe { _memcpy(buffer.raw_data(), _bitcast<raw_ptr<u8>>(_address_of<std.terminal.Termios>(settings)), _sizeof<std.terminal.Termios>()); };
+      unsafe {
+        _memcpy(
+          buffer.raw_data(),
+          _bitcast<raw_ptr<u8>>(_address_of<std.terminal.Termios>(settings)),
+          _sizeof<std.terminal.Termios>()
+        );
+      };
     }
     return status;
   }
@@ -78,7 +84,8 @@ public module acceptance {
         "getsockname failed"
       );
       try check(unsafe { listen(this.fd, 1); } == 0, "listen failed");
-      this.port = _convert<i64>try buffer_value(address, 2) * 256 + _convert<i64>try buffer_value(address, 3);
+      this.port = _convert<i64>(try buffer_value(address, 2)) * 256 +
+        _convert<i64>(try buffer_value(address, 3));
 
       return MonitorTestResult.Ok;
     }
@@ -155,7 +162,7 @@ public module acceptance {
         if (events.size() > 0) {
           var count = unsafe { (read(this.master, buffer.raw_data(), 65536i64)); };
           if (count > 0) {
-            output.appendtry String(a, buffer, count);
+            output.append(try String(a, buffer, count));
           }
         }
       }
@@ -166,8 +173,7 @@ public module acceptance {
     /** Sends a short command sequence to the monitor. */
     method keys(text: String) MonitorTestResult<void> {
       try check(
-        unsafe { (write(this.master, text.c_str(), text.length())); } ==
-          text.length(),
+        unsafe { (write(this.master, text.c_str(), text.length())); } == text.length(),
         "terminal write failed"
       );
 
@@ -204,9 +210,9 @@ public module acceptance {
     var expected = titles.split(a, b'|');
     for (var i: i64 = 0; i < keys.length(); i = i + 1) {
       output.clear();
-      try tty.keystry keys.substr(a, i, 1);
+      try tty.keys(try keys.substr(a, i, 1));
       try tty.drain(a, output, 500);
-      try check(output.containstry expected.get(i), "selected monitor not shown");
+      try check(output.contains(try expected.get(i)), "selected monitor not shown");
       if (i > 0) {
         try check(
           output.contains("HISTORY (") and output.contains("╭") and output.contains("╰"),
@@ -223,7 +229,7 @@ public module acceptance {
       try tty.keys(String("\x1b[C"));
       try tty.drain(a, output, 300);
       try check(
-        output.containstry expected.get((i + 1) % 5),
+        output.contains(try expected.get((i + 1) % 5)),
         "right arrow did not select next tab"
       );
       try tty.keys(String("\x1b[B"));
@@ -328,8 +334,7 @@ public module acceptance {
       );
       var after_view = try wait_view(a, base, false);
       try check(
-        try try (try after_view.get("snapshot")).get("elapsed_ms").as_i64() >
-          previous_time,
+        try try (try after_view.get("snapshot")).get("elapsed_ms").as_i64() > previous_time,
         "terminal navigation stopped web collection"
       );
     }
@@ -358,7 +363,10 @@ public module acceptance {
       try restored.set(3, (try buffer_value(restored, 3)) & ~536870912u64);
     }
     for (var i: i64 = 0; i < 32; i = i + 1) {
-      try check((try buffer_value(original, i)) == (try buffer_value(restored, i)), "terminal settings not restored");
+      try check(
+        (try buffer_value(original, i)) == (try buffer_value(restored, i)),
+        "terminal settings not restored"
+      );
     }
     try check(
       output.contains("\x1b[?1049h") and output.contains("\x1b[?1049l"),

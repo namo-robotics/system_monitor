@@ -33,7 +33,10 @@ public module acceptance {
   }
 
   /** Copies a checked buffer value before its storage is reused. */
-  function buffer_value<T: _Primitive>(buffer: const ref ContiguousBuffer<T>, index: i64) AccessResult<T> {
+  function buffer_value<T: _Primitive>(
+    buffer: const ref ContiguousBuffer<T>,
+    index: i64
+  ) AccessResult<T> {
     var value: T = try buffer.get(index);
     return AccessResult.Ok(value);
   }
@@ -47,13 +50,19 @@ public module acceptance {
   function publication_ready(view: ref Json, finished: bool) MonitorTestResult<bool> {
     var present = match view.get("snapshot") {
       JsonResult.Ok(snapshot) => not snapshot.is_null(),
-      JsonResult.Error(error) => { return MonitorTestResult.Json(error); }
+      JsonResult.Error(error) => {
+        return MonitorTestResult.Json(error);
+      }
     };
-    if (not present) { return MonitorTestResult.Ok(false); }
+    if (not present) {
+      return MonitorTestResult.Ok(false);
+    }
     if (finished) {
       return MonitorTestResult.Ok(try (try (try view.get("status")).get("finished")).as_bool());
     }
-    return MonitorTestResult.Ok((try (try (try view.get("snapshot")).get("elapsed_ms")).as_i64()) >= 500);
+    return MonitorTestResult.Ok(
+      (try (try (try view.get("snapshot")).get("elapsed_ms")).as_i64()) >= 500
+    );
   }
 
   /** Sets a hostile display label and copies its process identity for replay checks. */
@@ -65,7 +74,11 @@ public module acceptance {
   }
 
   /** Serializes a field and releases its borrow before the parent is reused. */
-  function field_text(a: ref HeapAllocator, value: ref Json, key: static_ptr<u8>) MonitorTestResult<String> {
+  function field_text(
+    a: ref HeapAllocator,
+    value: ref Json,
+    key: static_ptr<u8>
+  ) MonitorTestResult<String> {
     return MonitorTestResult.Ok((try value.get(key)).to_string(a));
   }
 
@@ -81,7 +94,11 @@ public module acceptance {
   }
 
   /** Copies all rows except the chosen identity to exercise replayed process exits. */
-  function remaining_processes(a: ref HeapAllocator, snapshot: ref Json, identity: const ref String) MonitorTestResult<Json> {
+  function remaining_processes(
+    a: ref HeapAllocator,
+    snapshot: ref Json,
+    identity: const ref String
+  ) MonitorTestResult<Json> {
     var remaining = create_json_array(a);
     var rows: ref Json = try snapshot.get("processes");
     for (var i: i64 = 0; i < rows.len(); i = i + 1) {
@@ -178,11 +195,11 @@ public module acceptance {
     var views = names.split_whitespace(a);
     for (var i: i64 = 0; i < views.size(); i = i + 1) {
       var args = String("--monitor ");
-      args.appendtry vector_read(views, i);
+      args.append(try vector_read(views, i));
       args.append(" --samples 2 --interval .1");
       var result = try run(a, binary, args, 0);
       var title = String("SYSTEM MONITOR / ");
-      title.appendtry vector_read(views, i);
+      title.append(try vector_read(views, i));
       try check(result.stdout().contains(title), "resource view title missing");
       try check(result.stdout().contains("sample 2"), "resource sample limit missing");
       try check(
@@ -228,7 +245,7 @@ public module acceptance {
     var parts = args.split(a, b' ');
     for (var i: i64 = 0; i < parts.size(); i = i + 1) {
       if (not (try vector_read(parts, i)).is_empty()) {
-        cmd.add_argtry vector_read(parts, i);
+        cmd.add_arg(try vector_read(parts, i));
       }
     }
     return MonitorTestResult.Ok(cmd);
@@ -247,7 +264,7 @@ public module acceptance {
     var parts = args.split(a, b' ');
     for (var i: i64 = 0; i < parts.size(); i = i + 1) {
       if (not (try vector_read(parts, i)).is_empty()) {
-        cmd.add_argtry vector_read(parts, i);
+        cmd.add_arg(try vector_read(parts, i));
       }
     }
     var result = try cmd.output();
@@ -413,7 +430,7 @@ public module acceptance {
     method: static_ptr<u8>,
     code: static_ptr<u8>
   ) MonitorTestResult<String> {
-    return MonitorTestResult.Oktry request_path(a, base, String(path), method, code);
+    return MonitorTestResult.Ok(try request_path(a, base, String(path), method, code));
   }
 
   /** Fetches an endpoint whose path includes a recorded identity. */
@@ -443,7 +460,7 @@ public module acceptance {
     try check((out.status()) == 0, "HTTP request failed");
     var body = out.stdout();
     try check(body.ends_with(code), "unexpected HTTP status");
-    return MonitorTestResult.Oktry body.substr(a, 0, body.length() - 4);
+    return MonitorTestResult.Ok(try body.substr(a, 0, body.length() - 4));
   }
 
   /** Reads a publication and reports whether the requested sampling state is ready. */
@@ -568,7 +585,7 @@ public module acceptance {
       client.add_arg(url);
       client.set_stdout(std.process.Stdio.Piped);
       client.set_stderr(std.process.Stdio.Null);
-      clients.pushtry Running(client);
+      clients.push(try Running(client));
     }
     for (var i: i64 = 0; i < clients.size(); i = i + 1) {
       var response = try (try clients.get(i)).child.collect(a);
@@ -625,7 +642,9 @@ public module acceptance {
     var history_text = try request_path(a, base, identity_path, "GET", "200");
     var points = try parse_json(a, history_text);
     try check(
-      (try (try points.at(0)).get("process")).to_string(a).equalstry first_process_text(a, first),
+      (try (try points.at(0)).get("process")).to_string(a).equals(
+        try first_process_text(a, first)
+      ),
       "identity history mismatch"
     );
     try check(

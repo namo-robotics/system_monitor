@@ -58,12 +58,12 @@ public module system_monitor {
         return Result.Ok(try (try row.get("mount")).as_string().clone(a));
       }
       if (index == 1) {
-        return Result.Oktry resource_number(row, String("used_bytes"), 1073741824.0);
+        return Result.Ok(try resource_number(row, String("used_bytes"), 1073741824.0));
       }
       if (index == 2) {
-        return Result.Oktry resource_number(row, String("available_bytes"), 1073741824.0);
+        return Result.Ok(try resource_number(row, String("available_bytes"), 1073741824.0));
       }
-      return Result.Oktry resource_number(row, String("used_percent"), 1.0);
+      return Result.Ok(try resource_number(row, String("used_percent"), 1.0));
     }
     var keys = String("sensor|celsius|critical_celsius|status");
     if (name.equals_literal("service")) {
@@ -79,10 +79,10 @@ public module system_monitor {
       if (index < 4) {
         divisor = 1024.0;
       }
-      return Result.Oktry resource_number(row, key, divisor);
+      return Result.Ok(try resource_number(row, key, divisor));
     }
     if (name.equals_literal("temperature") and (index == 1 or index == 2)) {
-      return Result.Oktry resource_number(row, key, 1.0);
+      return Result.Ok(try resource_number(row, key, 1.0));
     }
     return Result.Ok(try (try row.get(key)).as_string().clone(a));
   }
@@ -145,9 +145,10 @@ public module system_monitor {
         if (width < 1) {
           width = 1;
         }
-        out.append
+        out.append(
           try safe_text(a, String("Enlarge terminal to 65 columns and 18 rows. q quits."), width)
-        ;
+        );
+
         return Result.Ok(out);
       }
       try this.locate(a, data, terminal, o.monitor);
@@ -158,14 +159,14 @@ public module system_monitor {
       title.append("  |  sample ");
       title.append(data.samples);
       style.color(out, "\x1b[1;36m");
-      out.appendtry safe_text(a, title, style.width);
+      out.append(try safe_text(a, title, style.width));
       style.color(out, "\x1b[0m");
       out.append("\r\n");
       var hint = String("1-5 tabs  Tab focus  Up/Down select  space pause  q quit");
       if (terminal.tabs_focused) {
         hint = String("TABS: Left/Right choose  Down/Enter view  1-5 jump  q quit");
       }
-      out.appendtry safe_text(a, hint, style.width);
+      out.append(try safe_text(a, hint, style.width));
       out.append("\r\n");
       var detail = data.message.clone(a);
       if (data.rows.len() > 0) {
@@ -176,23 +177,23 @@ public module system_monitor {
         detail.append(data.rows.len());
         detail.append(" | ");
         if (o.monitor.equals_literal("disk")) {
-          detail.appendtry (try row.get("filesystem")).as_string();
+          detail.append(try (try row.get("filesystem")).as_string());
           detail.append(" on ");
-          detail.appendtry (try row.get("mount")).as_string();
+          detail.append(try (try row.get("mount")).as_string());
           detail.append(" | total GiB ");
-          detail.appendtry resource_number(row, String("total_bytes"), 1073741824.0);
+          detail.append(try resource_number(row, String("total_bytes"), 1073741824.0));
         } else if (o.monitor.equals_literal("network")) {
           detail.append("RX/TX total MiB ");
-          detail.appendtry resource_number(row, String("rx_bytes"), 1048576.0);
+          detail.append(try resource_number(row, String("rx_bytes"), 1048576.0));
           detail.append(" / ");
-          detail.appendtry resource_number(row, String("tx_bytes"), 1048576.0);
+          detail.append(try resource_number(row, String("tx_bytes"), 1048576.0));
         } else if (o.monitor.equals_literal("service")) {
-          detail.appendtry (try row.get("description")).as_string();
+          detail.append(try (try row.get("description")).as_string());
         } else {
-          detail.appendtry resource_cell(a, o.monitor, row, 0);
+          detail.append(try resource_cell(a, o.monitor, row, 0));
         }
       }
-      out.appendtry safe_text(a, detail, style.width);
+      out.append(try safe_text(a, detail, style.width));
       out.append("\r\n");
       var height = (terminal.rows - 15) / 3;
       if (height < 1) {
@@ -269,7 +270,7 @@ public module system_monitor {
         return Result.Ok;
       }
       try terminal.size(a);
-      (outputtry this.render(a, data, terminal, o));
+      (output(try this.render(a, data, terminal, o)));
 
       return Result.Ok;
     }

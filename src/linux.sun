@@ -47,9 +47,9 @@ public module system_monitor {
     var p = Process();
     p.pid = try number(pid);
     p.exe = try stat.substr(a, begin + 1, end - begin - 1);
-    p.start = try numbertry fields.get(19);
-    p.ticks = (try numbertry fields.get(11)) + (try numbertry fields.get(12));
-    p.rss = (try numbertry fields.get(21)) * page;
+    p.start = try number(try fields.get(19));
+    p.ticks = (try number(try fields.get(11))) + (try number(try fields.get(12)));
+    p.rss = (try number(try fields.get(21))) * page;
     return Result.Ok(p);
   }
 
@@ -60,7 +60,7 @@ public module system_monitor {
     for (var i: i64 = 0; i < lines.size(); i = i + 1) {
       if ((try vector_read(lines, i)).starts_with("MemTotal:")) {
         var parts = (try vector_read(lines, i)).split_whitespace(a);
-        return Result.Ok((try numbertry parts.get(1)) * 1024);
+        return Result.Ok((try number(try parts.get(1))) * 1024);
       }
     }
     return Result.Error(Error(1, "physical memory total unavailable"));
@@ -81,7 +81,12 @@ public module system_monitor {
     var buffer = ContiguousBuffer<u8>(a, 4096);
     var n = unsafe { pm_readlink(exe.c_str(), buffer.raw_data(), 4095i64); };
     if (n > 0) {
-      match String(a, buffer, n) { AccessResult.Ok(path) => { p.exe = path; }, (e: const ref IError) => {} };
+      match String(a, buffer, n) {
+        AccessResult.Ok(path) => {
+          p.exe = path;
+        },
+        (e: const ref IError) => {}
+      };
     }
   }
 

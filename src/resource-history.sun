@@ -22,7 +22,7 @@ public module system_monitor {
     if (name.equals_literal("disk")) {
       var id = try (try row.get("filesystem")).as_string().clone(a);
       id.append("\n");
-      id.appendtry(try row.get("mount")).as_string();
+      id.append(try (try row.get("mount")).as_string());
       return Result.Ok(id);
     }
     if (name.equals_literal("service")) {

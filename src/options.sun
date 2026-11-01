@@ -114,7 +114,7 @@ public module system_monitor {
     if (value.equals_literal("all")) {
       return Result.Ok(0);
     }
-    return Result.Oktry bounded_integer(value, 1, 2147483647);
+    return Result.Ok(try bounded_integer(value, 1, 2147483647));
   }
 
   /** Chooses the resource used for descending process ranking. */

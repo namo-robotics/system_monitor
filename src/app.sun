@@ -49,7 +49,7 @@ public module system_monitor {
         return Result.Error(Error(1, "labels must be a JSON object"));
       }
       for (var k: i64 = 0; k < this.labels.document.len(); k = k + 1) {
-        var pid = try numbertry this.labels.document.key_at(k);
+        var pid = try number(try this.labels.document.key_at(k));
         if (pid < 0 or not (try this.labels.document.value_at(k)).is_string()) {
           return Result.Error(Error(1, "labels require PID keys and string values"));
         }
@@ -67,7 +67,7 @@ public module system_monitor {
       var line = try this.replay.line(a);
       var meta = try parse_json(a, line);
       if (try (try meta.get("version")).as_i64() != 1 or
-        not try (try meta.get("type")).as_string().equals_literal("session")) {
+        not (try (try meta.get("type")).as_string().equals_literal("session"))) {
         return Result.Error(Error(1, "unsupported recording header"));
       }
 
@@ -129,7 +129,7 @@ public module system_monitor {
         var text = json.to_string(a);
         try write_record(this.recording, text);
       }
-      try this.history.addtry frame.copy(a);
+      try this.history.add(try frame.copy(a));
       this.previous = frame;
       this.samples = this.samples + 1;
 
@@ -186,9 +186,9 @@ public module system_monitor {
         if (not process_view and not session.options.ui.equals_literal("web")) {
           (resources.sample(a, session.options.monitor, now));
           if (terminal.active) {
-            try resource_view.history.add
+            try resource_view.history.add(
               try resource_frame(a, resources, session.options.monitor, now)
-            ;
+            );
           }
         }
         due = now + session.options.interval;

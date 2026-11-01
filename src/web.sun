@@ -30,7 +30,7 @@ public module system_monitor {
           (e: const ref IError) => {
             resource = directory.clone(a);
             resource.append("/share/system_monitor/dashboard.html");
-            return Result.Oktry std.io.read_to_string(a, resource);
+            return Result.Ok(try std.io.read_to_string(a, resource));
           }
         };
       },
@@ -99,8 +99,8 @@ public module system_monitor {
         match req.query_param("id", a) {
           Option.Some(id) => {
             var parts = id.split(a, b':');
-            if (parts.size() != 2 or (try numbertry parts.get(0)) < 0 or
-              (try numbertry parts.get(1)) < 0) {
+            if (parts.size() != 2 or (try number(try parts.get(0))) < 0 or
+              (try number(try parts.get(1))) < 0) {
               return Result.Error(Error(1, "invalid identity"));
             }
             var frames = try parse_json(a, text);
@@ -110,7 +110,7 @@ public module system_monitor {
               var point = create_json_object(a);
               try point.set(
                 String("elapsed_ms"),
-                Jsontry (try frame.get("elapsed_ms")).as_i64()
+                Json(try (try frame.get("elapsed_ms")).as_i64())
               );
               var rows: ref Json = try frame.get("processes");
               try point.set(String("process"), Json());
@@ -230,11 +230,15 @@ public module system_monitor {
       handlers.push(DashboardHandler(this.state.clone()));
       var server = match Server<DashboardHandler>(a, cfg, handlers) {
         ServerResult.Ok(value) => value,
-        (error: const ref IError) => { return Result.Error(Error(error.code(), error.message())); }
+        (error: const ref IError) => {
+          return Result.Error(Error(error.code(), error.message()));
+        }
       };
       match server.start() {
         ServerResult.Ok => {},
-        (error: const ref IError) => { return Result.Error(Error(error.code(), error.message())); }
+        (error: const ref IError) => {
+          return Result.Error(Error(error.code(), error.message()));
+        }
       };
       this.server = Option.Some(server);
       var message = String("Web dashboard: http://127.0.0.1:");
@@ -252,14 +256,14 @@ public module system_monitor {
       var snapshot = (try frame_json(a, session.previous)).to_string(a);
       var frames = create_json_array(a);
       for (var i: i64 = 0; i < session.history.frames.size(); i = i + 1) {
-        try frames.pushtry frame_json(a, try session.history.frames.get(i));
+        try frames.push(try frame_json(a, try session.history.frames.get(i)));
       }
       var history = frames.to_string(a);
       var status = create_json_object(a);
       try status.set(String("version"), Json(1i64));
       try status.set(String("replay"), Json(not session.options.replay.is_empty()));
       try status.set(String("finished"), Json(session.finished));
-      try status.set(String("history_ms"), Jsontry session.history.window());
+      try status.set(String("history_ms"), Json(try session.history.window()));
       try status.set(String("evicted"), Json(session.history.evicted));
       try status.set(String("graph_window_ms"), Json(session.options.graph_window));
       try status.set(String("top"), Json(session.options.top));
