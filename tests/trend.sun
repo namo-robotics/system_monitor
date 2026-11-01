@@ -163,8 +163,8 @@ public module system_monitor {
     (try std.test.assert_eq(
       time_pixel(
         75000,
-        (try graph.begin(history)),
-        (try graph.begin(history)) + graph.duration,
+        (graph.begin(history)),
+        (graph.begin(history)) + graph.duration,
         121
       ),
       120i64
