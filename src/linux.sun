@@ -7,7 +7,7 @@ public module system_monitor {
   extern "C" function pm_sysconf(name: i32) i64 as "sysconf";
 
   /* Reads a symbolic link into a caller-owned buffer. */
-  extern "C" function pm_readlink(path: raw_ptr<u8>, out: raw_ptr<u8>, size: u64) i64 as "readlink";
+  extern "C" function pm_readlink(path: raw_ptr<u8>, out: raw_ptr<u8>, size: i64) i64 as "readlink";
 
   /* Returns the operating system CPU counter frequency. */
   function clock_ticks() i64 {
@@ -79,7 +79,7 @@ public module system_monitor {
     var exe = base.clone(a);
     exe.append("/exe");
     var buffer = ContiguousBuffer<u8>(a, 4096);
-    var n = unsafe { pm_readlink(exe.c_str(), buffer.raw_data(), 4095u64); };
+    var n = unsafe { pm_readlink(exe.c_str(), buffer.raw_data(), 4095i64); };
     if (n > 0) {
       match String(a, buffer, n) { AccessResult.Ok(path) => { p.exe = path; }, (e: const ref IError) => {} };
     }

@@ -13,7 +13,7 @@ public module system_monitor {
   function load_dashboard(a: ref HeapAllocator) Result<String> {
     var buffer = ContiguousBuffer<u8>(a, 4096);
     var executable = String("/proc/self/exe");
-    var size = unsafe { pm_readlink(executable.c_str(), buffer.raw_data(), 4096u64); };
+    var size = unsafe { pm_readlink(executable.c_str(), buffer.raw_data(), 4096i64); };
     if (size <= 0 or size >= 4096) {
       return Result.Error(Error(1, "cannot locate the dashboard executable"));
     }

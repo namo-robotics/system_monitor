@@ -218,7 +218,7 @@ public module system_monitor {
     }
 
     /* Anchors startup at the first sample, then advances the fixed time window. */
-    method begin(history: ref History) i64 {
+    const method begin(history: ref History) i64 {
       var start = history.latest - this.duration;
       if (start < history.origin) {
         start = history.origin;
@@ -235,7 +235,7 @@ public module system_monitor {
           continue;
         }
         for (var i: i64 = 0; i < this.series.size(); i = i + 1) {
-          var item: ref TrendSeries = (try this.series.get(i));
+          var item: const ref TrendSeries = (try this.series.get(i));
           var value = (try history_value(
             (try history.frames.get(f)),
             item.pid,
@@ -251,10 +251,10 @@ public module system_monitor {
     }
 
     /* Draws a process history while breaking the line at missing samples. */
-    method trace(
+    const method trace(
       canvas: ref DotCanvas,
       history: ref History,
-      item: ref TrendSeries,
+      item: const ref TrendSeries,
       memory: bool,
       peak: f64
     ) Result<void> {
@@ -328,7 +328,7 @@ public module system_monitor {
           var index = row * 3 + col;
           var text = String("");
           if (index < this.series.size()) {
-            var item: ref TrendSeries = (try this.series.get(index));
+            var item: const ref TrendSeries = (try this.series.get(index));
             text.append(item.pid);
             text.append(" ");
             text.append(item.label);

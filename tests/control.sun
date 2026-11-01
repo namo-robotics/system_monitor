@@ -28,8 +28,8 @@ public module system_monitor {
       var frame = (try collect(a, 0));
       var start: i64 = -1;
       for (var row: i64 = 0; row < frame.processes.size(); row = row + 1) {
-        if ((try frame.processes.get(row)).pid == _convert<i64>(pid)) {
-          start = (try frame.processes.get(row)).start;
+        if ((try vector_read(frame.processes, row)).pid == _convert<i64>(pid)) {
+          start = (try vector_read(frame.processes, row)).start;
         }
       }
       var stale = control_process(a, _convert<i64>(pid), start + 1, 15);
