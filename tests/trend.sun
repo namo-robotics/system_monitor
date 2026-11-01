@@ -128,12 +128,12 @@ public module system_monitor {
     var first = Frame(a);
     first.elapsed = 5000;
     (try history.add(first));
-    (try std.test.assert_eq((try graph.begin(history)), 5000i64));
+    (try std.test.assert_eq((graph.begin(history)), 5000i64));
     (try std.test.assert_eq(
       time_pixel(
         5000,
-        (try graph.begin(history)),
-        (try graph.begin(history)) + graph.duration,
+        (graph.begin(history)),
+        (graph.begin(history)) + graph.duration,
         121
       ),
       0i64
@@ -142,12 +142,12 @@ public module system_monitor {
     middle.elapsed = 35000;
     (try history.add(middle));
     (try std.test.assert_eq(history.frames.size(), 1i64));
-    (try std.test.assert_eq((try graph.begin(history)), 5000i64));
+    (try std.test.assert_eq((graph.begin(history)), 5000i64));
     (try std.test.assert_eq(
       time_pixel(
         35000,
-        (try graph.begin(history)),
-        (try graph.begin(history)) + graph.duration,
+        (graph.begin(history)),
+        (graph.begin(history)) + graph.duration,
         121
       ),
       60i64
@@ -155,11 +155,11 @@ public module system_monitor {
     var full = Frame(a);
     full.elapsed = 65000;
     (try history.add(full));
-    (try std.test.assert_eq((try graph.begin(history)), 5000i64));
+    (try std.test.assert_eq((graph.begin(history)), 5000i64));
     var later = Frame(a);
     later.elapsed = 75000;
     (try history.add(later));
-    (try std.test.assert_eq((try graph.begin(history)), 15000i64));
+    (try std.test.assert_eq((graph.begin(history)), 15000i64));
     (try std.test.assert_eq(
       time_pixel(
         75000,
