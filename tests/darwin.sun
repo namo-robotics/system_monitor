@@ -10,9 +10,9 @@ public module system_monitor {
     test_function identity_layout_and_clock_are_valid() MonitorTestResult<void> {
       (try std.test.assert_eq(_sizeof<BsdInfo>(), 136i64));
       (try std.test.assert((try clock_ticks()) > 0, "native CPU frequency"));
-    
- return MonitorTestResult.Ok;
-}
+
+      return MonitorTestResult.Ok;
+    }
 
     /* Verifies the native collector can read visible processes and physical memory. */
     test_function native_collection_returns_samples() MonitorTestResult<void> {
@@ -20,8 +20,8 @@ public module system_monitor {
       var f = (try collect(a, 0));
       (try std.test.assert(f.total_memory > 0, "physical memory"));
       (try std.test.assert(f.processes.size() > 0, "visible processes"));
-    
- return MonitorTestResult.Ok;
-}
+
+      return MonitorTestResult.Ok;
+    }
   }
 }

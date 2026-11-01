@@ -1,5 +1,6 @@
 /* Bounded terminal tables and panels with presentation kept separate from data. */
 public module system_monitor {
+
   using std;
 
   /* Formats fixed-width cells and colored borders for one terminal frame. */
@@ -68,7 +69,7 @@ public module system_monitor {
       for (var col: i64 = 0; col < count; col = col + 1) {
         var size = this.width - 2;
         if (divided) {
-          size = (try this.column(col)) + 2;
+          size = (this.column(col)) + 2;
         }
         for (var i: i64 = 0; i < size; i = i + 1) {
           if (this.colored) {
@@ -99,10 +100,17 @@ public module system_monitor {
     }
 
     /* Clips and pads text before applying color, keeping ANSI bytes out of widths. */
-    method cell(a: const ref HeapAllocator, out: ref String, text: const ref String, width: i64, right: bool, selected: bool) Result<void> {
+    method cell(
+      a: const ref HeapAllocator,
+      out: ref String,
+      text: const ref String,
+      width: i64,
+      right: bool,
+      selected: bool
+    ) Result<void> {
       var clean = (try safe_text(a, text, width));
       if (text.length() > width and width > 0) {
-        clean.set_at(width - 1, b'~');
+        (try clean.set_at(width - 1, b'~'));
       }
       if (selected) {
         this.color(out, "\x1b[1;97;44m");
@@ -122,20 +130,25 @@ public module system_monitor {
       out.append(" ");
       this.color(out, "\x1b[0m");
       this.edge(out, "│", "|");
-    
- return Result.Ok;
-}
+
+      return Result.Ok;
+    }
 
     /* Writes one bounded line inside a full-width history panel. */
-    method panel_line(a: const ref HeapAllocator, out: ref String, text: const ref String, accent: bool) Result<void> {
+    method panel_line(
+      a: const ref HeapAllocator,
+      out: ref String,
+      text: const ref String,
+      accent: bool
+    ) Result<void> {
       this.edge(out, "│", "|");
       if (accent) {
         this.color(out, "\x1b[1;32m");
       }
       (try this.cell(a, out, text, this.width - 4, false, false));
       out.append("\r\n");
-    
- return Result.Ok;
-}
+
+      return Result.Ok;
+    }
   }
 }

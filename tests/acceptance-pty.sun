@@ -1,41 +1,58 @@
 /* Provides native terminal and socket fixtures for acceptance tests. */
 public module acceptance {
+
   using std;
+
   /* Opens the controller side of a pseudo-terminal. */
   extern "C" function posix_openpt(flags: i32) i32;
+
   /* Grants access to a pseudo-terminal's worker side. */
   extern "C" function grantpt(fd: i32) i32;
+
   /* Unlocks a pseudo-terminal's worker side. */
   extern "C" function unlockpt(fd: i32) i32;
+
   /* Returns the worker-side terminal path. */
   extern "C" function ptsname(fd: i32) raw_ptr<u8>;
+
   /* Opens an existing device. */
   extern "C" function open(path: raw_ptr<u8>, flags: i32) i32;
+
   /* Closes a native descriptor. */
   extern "C" function close(fd: i32) i32;
+
   /* Connects a terminal to a child's standard stream. */
   extern "C" function dup2(fd: i32, target: i32) i32;
+
   /* Reads terminal settings into an aligned buffer. */
   extern "C" function tcgetattr(fd: i32, buffer: raw_ptr<u8>) i32;
+
   /* Updates terminal dimensions. */
   extern "C" function ioctl(fd: i32, request: u64, buffer: raw_ptr<u8>) i32;
+
   /* Reads available terminal output. */
   extern "C" function read(fd: i32, buffer: raw_ptr<u8>, count: u64) i64;
+
   /* Sends interactive keys. */
   extern "C" function write(fd: i32, buffer: raw_ptr<u8>, count: u64) i64;
+
   /* Creates an IPv4 socket. */
   extern "C" function socket(domain: i32, kind: i32, protocol: i32) i32;
+
   /* Reserves a local socket address. */
   extern "C" function bind(fd: i32, address: raw_ptr<u8>, size: u32) i32;
+
   /* Reads the local port assigned by the operating system. */
   extern "C" function getsockname(fd: i32, address: raw_ptr<u8>, size: raw_ptr<u32>) i32;
 
   /* Starts listening on a reserved socket. */
   extern "C" function listen(fd: i32, backlog: i32) i32;
+
   /* Reserves a port without allowing another listener to reuse it. */
   class BoundPort {
     var fd: i32 = -1;
     var port: i64 = 0;
+
     init(a: ref HeapAllocator) MonitorTestResult<void> {
       var address = ContiguousBuffer<u8>(a, 16);
       address.fill(0u8);
@@ -46,28 +63,35 @@ public module acceptance {
       (try check(this.fd >= 0, "socket failed"));
       var size: u32 = 16;
       (try check(unsafe { bind(this.fd, address.raw_data(), size); } == 0, "bind failed"));
-      (try check(unsafe { getsockname(this.fd, address.raw_data(), _address_of<u32>(size)); } == 0, "getsockname failed"));
+      (try check(
+        unsafe { getsockname(this.fd, address.raw_data(), _address_of<u32>(size)); } == 0,
+        "getsockname failed"
+      ));
       (try check(unsafe { listen(this.fd, 1); } == 0, "listen failed"));
       this.port = _convert<i64>((try address.get(2))) * 256 + _convert<i64>((try address.get(3)));
-    
- return MonitorTestResult.Ok;
-}
+
+      return MonitorTestResult.Ok;
+    }
+
     deinit() {
       if (this.fd >= 0) {
         unsafe { close(this.fd); };
       }
     }
   }
+
   /* Finds an available localhost port for a Linux web test. */
   function free_port(a: ref HeapAllocator) MonitorTestResult<i64> {
     var reserved = (try BoundPort(a));
     return MonitorTestResult.Ok(reserved.port);
   }
+
   /* Owns a terminal pair and reaps its child on failure. */
   class Pty {
     var master: i32 = -1;
     var slave: i32 = -1;
     var pid: i32 = 0;
+
     init() MonitorTestResult<void> {
       var flags: i32 = 258;
       if (_target_is("macos")) {
@@ -79,12 +103,13 @@ public module acceptance {
       (try check(unsafe { unlockpt(this.master); } == 0, "unlockpt failed"));
       this.slave = unsafe { (try open(ptsname(this.master), flags)); };
       (try check(this.slave >= 0, "cannot open terminal"));
-    
- return MonitorTestResult.Ok;
-}
+
+      return MonitorTestResult.Ok;
+    }
+
     deinit() {
       if (this.pid > 0) {
-        unsafe { kill(this.pid, 9); waitpid(this.pid, null, 0); };
+        unsafe { (try kill(this.pid, 9)); waitpid(this.pid, null, 0); };
       }
       if (this.master >= 0) {
         unsafe { close(this.master); };
@@ -93,6 +118,7 @@ public module acceptance {
         unsafe { close(this.slave); };
       }
     }
+
     /* Sets terminal dimensions using the platform's request code. */
     method resize(a: ref HeapAllocator, rows: u16, columns: u16) MonitorTestResult<void> {
       var size = ContiguousBuffer<u16>(a, 4);
@@ -104,9 +130,10 @@ public module acceptance {
         request = 2148037735;
       }
       (try check(unsafe { ioctl(this.slave, request, size.raw_data()); } == 0, "resize failed"));
-    
- return MonitorTestResult.Ok;
-}
+
+      return MonitorTestResult.Ok;
+    }
+
     /* Drains output while allowing the child to sample and handle keys. */
     method drain(a: ref HeapAllocator, output: ref String, duration: i64) MonitorTestResult<void> {
       var start = std.time.now();
@@ -118,53 +145,77 @@ public module acceptance {
         if (events.size() > 0) {
           var count = unsafe { (try read(this.master, buffer.raw_data(), 65536u64)); };
           if (count > 0) {
-            output.append(String(a, buffer, count));
+            output.append((try String(a, buffer, count)));
           }
         }
       }
-    
- return MonitorTestResult.Ok;
-}
+
+      return MonitorTestResult.Ok;
+    }
+
     /* Sends a short command sequence to the monitor. */
     method keys(text: String) MonitorTestResult<void> {
-      (try check(unsafe { (try write(this.master, text.c_str(), _convert<u64>(text.length()))); } == text.length(), "terminal write failed"));
-    
- return MonitorTestResult.Ok;
-}
+      (try check(
+        unsafe { (try write(this.master, text.c_str(), _convert<u64>(text.length()))); } ==
+          text.length(),
+        "terminal write failed"
+      ));
+
+      return MonitorTestResult.Ok;
+    }
   }
+
   /* Exercises numbered tabs, arrow focus, resizing and default process startup. */
   function terminal_tabs(a: ref HeapAllocator, binary: ref String) MonitorTestResult<void> {
     var tty = (try Pty());
     (try tty.resize(a, 24u16, 80u16));
     var cmd = (try command(a, binary, String("--interval .1 --top 1")));
-    tty.pid = std.process.fork();
+    tty.pid = (try std.process.fork());
     if (tty.pid == 0) {
-      unsafe { close(tty.master); dup2(tty.slave, 0); dup2(tty.slave, 1); dup2(tty.slave, 2); close(tty.slave); };
+      unsafe {
+        close(tty.master);
+        dup2(tty.slave, 0);
+        dup2(tty.slave, 1);
+        dup2(tty.slave, 2);
+        close(tty.slave);
+      };
       (try std.process.exec(cmd));
       std.process.exit_now(127);
     }
     var output = String("");
     (try tty.drain(a, output, 300));
     (try check(output.contains("PROCESS MONITOR"), "startup should show processes"));
-    (try check(output.contains("[1 Processes]") and output.contains("5 Temperature"), "horizontal tabs missing"));
+    (try check(
+      output.contains("[1 Processes]") and output.contains("5 Temperature"),
+      "horizontal tabs missing"
+    ));
     var keys = String("12345");
     var titles = String("PROCESS MONITOR|/ disk|/ service|/ network|/ temperature");
     var expected = titles.split(a, b'|');
     for (var i: i64 = 0; i < keys.length(); i = i + 1) {
       output.clear();
-      (try tty.keys(keys.substr(a, i, 1)));
+      (try tty.keys((try keys.substr(a, i, 1))));
       (try tty.drain(a, output, 500));
       (try check(output.contains((try expected.get(i))), "selected monitor not shown"));
       if (i > 0) {
-        (try check(output.contains("HISTORY (") and output.contains("╭") and output.contains("╰"), "resource table and history borders missing"));
+        (try check(
+          output.contains("HISTORY (") and output.contains("╭") and output.contains("╰"),
+          "resource table and history borders missing"
+        ));
       }
       (try tty.keys(String("\x1b[B\x1b[A\x1b[A")));
       (try tty.drain(a, output, 500));
-      (try check(output.contains("TABS: Left/Right choose"), "up from first row did not focus tabs"));
+      (try check(
+        output.contains("TABS: Left/Right choose"),
+        "up from first row did not focus tabs"
+      ));
       output.clear();
       (try tty.keys(String("\x1b[C")));
       (try tty.drain(a, output, 300));
-      (try check(output.contains((try expected.get((i + 1) % 5))), "right arrow did not select next tab"));
+      (try check(
+        output.contains((try expected.get((i + 1) % 5))),
+        "right arrow did not select next tab"
+      ));
       (try tty.keys(String("\x1b[B")));
       (try tty.drain(a, output, 100));
     }
@@ -198,12 +249,18 @@ public module acceptance {
     }
     (try check(tty.pid == 0 and status == 0, "tabbed terminal did not exit cleanly"));
     (try check(output.contains("\x1b[?1049l"), "tabbed terminal did not restore alternate screen"));
-  
- return MonitorTestResult.Ok;
-}
+
+    return MonitorTestResult.Ok;
+  }
 
   /* Checks interactive controls, resize, recording while paused, and restoration. */
-  function terminal(a: ref HeapAllocator, binary: ref String, directory: ref String, signal: bool, both: bool) MonitorTestResult<void> {
+  function terminal(
+    a: ref HeapAllocator,
+    binary: ref String,
+    directory: ref String,
+    signal: bool,
+    both: bool
+  ) MonitorTestResult<void> {
     var tty = (try Pty());
     var original = ContiguousBuffer<u64>(a, 32);
     original.fill(0u64);
@@ -225,9 +282,15 @@ public module acceptance {
       args.append(port);
     }
     var cmd = (try command(a, binary, args));
-    tty.pid = std.process.fork();
+    tty.pid = (try std.process.fork());
     if (tty.pid == 0) {
-      unsafe { close(tty.master); dup2(tty.slave, 0); dup2(tty.slave, 1); dup2(tty.slave, 2); close(tty.slave); };
+      unsafe {
+        close(tty.master);
+        dup2(tty.slave, 0);
+        dup2(tty.slave, 1);
+        dup2(tty.slave, 2);
+        close(tty.slave);
+      };
       (try std.process.exec(cmd));
       std.process.exit_now(127);
     }
@@ -249,12 +312,19 @@ public module acceptance {
       var previous_time = ((try try ((try try (try before_view.get("snapshot")).get("elapsed_ms"))).as_i64()));
       (try tty.keys(String("b2")));
       (try tty.drain(a, output, 300));
-      (try check(output.contains("SYSTEM MONITOR / disk"), "combined UI cannot switch terminal monitors"));
+      (try check(
+        output.contains("SYSTEM MONITOR / disk"),
+        "combined UI cannot switch terminal monitors"
+      ));
       var after_view = (try wait_view(a, base, false));
-      (try check(((try try ((try try (try after_view.get("snapshot")).get("elapsed_ms"))).as_i64())) > previous_time, "terminal navigation stopped web collection"));
+      (try check(
+        ((try try ((try try (try after_view.get("snapshot")).get("elapsed_ms"))).as_i64())) >
+          previous_time,
+        "terminal navigation stopped web collection"
+      ));
     }
     if (signal) {
-      unsafe { kill(tty.pid, 15); };
+      unsafe { (try kill(tty.pid, 15)); };
     } else {
       (try tty.keys(String("q")));
     }
@@ -269,7 +339,10 @@ public module acceptance {
     (try check(tty.pid == 0 and status == 0, "terminal child did not exit cleanly"));
     var restored = ContiguousBuffer<u64>(a, 32);
     restored.fill(0u64);
-    (try check(unsafe { tcgetattr(tty.slave, restored.raw_data()); } == 0, "restore tcgetattr failed"));
+    (try check(
+      unsafe { tcgetattr(tty.slave, restored.raw_data()); } == 0,
+      "restore tcgetattr failed"
+    ));
     if (_target_is("macos")) {
       (try original.set(3, (try original.get(3)) & ~536870912u64));
       (try restored.set(3, (try restored.get(3)) & ~536870912u64));
@@ -277,10 +350,19 @@ public module acceptance {
     for (var i: i64 = 0; i < 32; i = i + 1) {
       (try check((try original.get(i)) == (try restored.get(i)), "terminal settings not restored"));
     }
-    (try check(output.contains("\x1b[?1049h") and output.contains("\x1b[?1049l"), "alternate screen not restored"));
-    (try check(output.contains("\x1b[0;36m") and output.contains("\x1b[1;97;44m"), "table colors missing"));
-    (try check(output.contains("TOP 5 CPU HISTORY") and output.contains("\x1b[38;5;"), "history graph missing"));
-  
- return MonitorTestResult.Ok;
-}
+    (try check(
+      output.contains("\x1b[?1049h") and output.contains("\x1b[?1049l"),
+      "alternate screen not restored"
+    ));
+    (try check(
+      output.contains("\x1b[0;36m") and output.contains("\x1b[1;97;44m"),
+      "table colors missing"
+    ));
+    (try check(
+      output.contains("TOP 5 CPU HISTORY") and output.contains("\x1b[38;5;"),
+      "history graph missing"
+    ));
+
+    return MonitorTestResult.Ok;
+  }
 }

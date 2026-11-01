@@ -33,9 +33,9 @@ public module system_monitor {
     terminal.apply_key(b'1', options);
     terminal.apply_key(b'f', options);
     (try std.test.assert_eq(options.top, 5i64));
-  
- return MonitorTestResult.Ok;
-}
+
+    return MonitorTestResult.Ok;
+  }
 
   /* Moves up to tabs, wraps left and right, then re-enters content without scrolling it. */
   test_function terminal_arrow_focus_moves_between_tabs_and_rows() MonitorTestResult<void> {
@@ -64,9 +64,9 @@ public module system_monitor {
     terminal.apply_key(13u8, options);
     (try std.test.assert(not terminal.tabs_focused, "Enter returns to content"));
     (try std.test.assert_eq(terminal.selected_row, 1i64));
-  
- return MonitorTestResult.Ok;
-}
+
+    return MonitorTestResult.Ok;
+  }
 
   /* Blocks process actions while focus is on tabs or a different monitor. */
   test_function terminal_tabs_do_not_signal_processes() MonitorTestResult<void> {
@@ -88,10 +88,13 @@ public module system_monitor {
     terminal.apply_key(b'[', options);
     terminal.apply_key(b'5', options);
     terminal.apply_key(b'~', options);
-    (try std.test.assert(options.monitor.equals_literal("disk"), "escape parameters are not shortcuts"));
-  
- return MonitorTestResult.Ok;
-}
+    (try std.test.assert(
+      options.monitor.equals_literal("disk"),
+      "escape parameters are not shortcuts"
+    ));
+
+    return MonitorTestResult.Ok;
+  }
 
   /* Keeps tab names and selection visible within wide and compact terminal widths. */
   test_function terminal_tabs_fit_available_width() MonitorTestResult<void> {
@@ -110,7 +113,7 @@ public module system_monitor {
     (try std.test.assert(strip.contains("[5 T]"), "compact selected tab"));
     (try std.test.assert(strip.length() <= terminal.columns + 1, "one line plus CRLF"));
     (try std.test.assert(not strip.contains("\x1b"), "unstyled output"));
-  
- return MonitorTestResult.Ok;
-}
+
+    return MonitorTestResult.Ok;
+  }
 }

@@ -1,8 +1,11 @@
 /* Linux-specific procfs parsing and collection checks. */
 public module system_monitor {
+
   using std;
+
   /* Groups related behavioral tests. */
   module linux_tests {
+
     /* Checks stable process handles without delivering a signal. */
     test_function pidfd_supports_signal_probe() MonitorTestResult<void> {
       var a = make_heap_allocator();
@@ -16,44 +19,51 @@ public module system_monitor {
         }
       }
       (try std.test.assert(false, "current process is visible"));
-    
- return MonitorTestResult.Ok;
-}
+
+      return MonitorTestResult.Ok;
+    }
+
     /* Parses comm names containing spaces and closing parentheses. */
     test_function stat_names_do_not_shift_fields() MonitorTestResult<void> {
       var a = make_heap_allocator();
-      var text = String("42 (worker ) with spaces) S 0 0 0 0 0 0 0 0 0 0 100 20 0 0 0 0 0 0 4321 0 10");
+      var text = String(
+        "42 (worker ) with spaces) S 0 0 0 0 0 0 0 0 0 0 100 20 0 0 0 0 0 0 4321 0 10"
+      );
       var p = (try parse_stat(a, text, 4096));
       (try std.test.assert_eq(p.pid, 42i64));
       (try std.test.assert_eq(p.start, 4321i64));
       (try std.test.assert_eq(p.ticks, 120i64));
       (try std.test.assert_eq(p.rss, 40960i64));
-    
- return MonitorTestResult.Ok;
-}
+
+      return MonitorTestResult.Ok;
+    }
+
     /* Rejects a truncated process record instead of inventing measurements. */
     test_function truncated_stat_is_rejected() MonitorTestResult<void> {
       var a = make_heap_allocator();
       var bad = String("42 (short) S 0");
       var rejected = false;
       match parse_stat(a, bad, 4096) {
- Result.Ok(value) => { var p = value; },
- (e: const ref IError) => {
-        rejected = true;
-      }
- };
+        Result.Ok(value) => {
+          var p = value;
+        },
+        (e: const ref IError) => {
+          rejected = true;
+        }
+      };
       (try std.test.assert(rejected, "truncated record"));
-    
- return MonitorTestResult.Ok;
-}
+
+      return MonitorTestResult.Ok;
+    }
+
     /* Samples visible processes with physical memory and stable identities. */
     test_function live_collection_has_identity_and_memory() MonitorTestResult<void> {
       var a = make_heap_allocator();
       var f = (try collect(a, 0));
       (try std.test.assert(f.processes.size() > 0, "visible processes"));
       (try std.test.assert(f.total_memory > 0, "physical memory"));
-    
- return MonitorTestResult.Ok;
-}
+
+      return MonitorTestResult.Ok;
+    }
   }
 }

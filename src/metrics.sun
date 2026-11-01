@@ -1,5 +1,6 @@
 /* Identity-aware conversion from OS counters to resource measurements. */
 public module system_monitor {
+
   using std;
 
   /* Parses an integer or reports invalid input. */
@@ -9,7 +10,7 @@ public module system_monitor {
         return Result.Ok(n);
       },
       Option.None => {
-        return Result.Error( Error(1, "expected an integer"));
+        return Result.Error(Error(1, "expected an integer"));
       }
     };
   }
@@ -19,7 +20,8 @@ public module system_monitor {
     if (before < 0 or after < before or elapsed_ms <= 0 or ticks_per_second <= 0) {
       return -1.0;
     }
-    return _convert<f64>(after - before) * 100000.0 / _convert<f64>(elapsed_ms) / _convert<f64>(ticks_per_second);
+    return _convert<f64>(after - before) * 100000.0 / _convert<f64>(elapsed_ms) /
+      _convert<f64>(ticks_per_second);
   }
 
   /* Derives CPU and memory values while rejecting recycled process identities. */
@@ -37,11 +39,16 @@ public module system_monitor {
       if (index.contains(p.pid)) {
         var old: ref Process = (try previous.processes.get((try index.get(p.pid))));
         if (old.start == p.start) {
-          p.cpu = cpu_percent(old.ticks, p.ticks, frame.elapsed - previous.elapsed, ticks_per_second);
+          p.cpu = cpu_percent(
+            old.ticks,
+            p.ticks,
+            frame.elapsed - previous.elapsed,
+            ticks_per_second
+          );
         }
       }
     }
-  
- return Result.Ok;
-}
+
+    return Result.Ok;
+  }
 }

@@ -1,5 +1,6 @@
 /* Process signalling with explicit identity and signal validation. */
 public module system_monitor {
+
   using std;
 
   /* Reads the monitor's own PID so it cannot accidentally signal itself. */
@@ -14,11 +15,11 @@ public module system_monitor {
       return String("Unsupported process signal");
     }
     match signal_process(a, _convert<i32>(pid), start, signal) {
- Result.Ok => {  },
- (e: const ref IError) => {
-      return String("Signal failed: process exited, changed, or permission denied");
-    }
- };
+      Result.Ok => {},
+      (e: const ref IError) => {
+        return String("Signal failed: process exited, changed, or permission denied");
+      }
+    };
     var result = String("Sent SIGTERM to PID ");
     if (signal == 9) {
       result = String("Sent SIGKILL to PID ");

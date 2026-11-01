@@ -1,5 +1,6 @@
 /* Pure formatting helpers and sampled terminal history graphs. */
 public module system_monitor {
+
   using std;
 
   /* Bounds text length and removes terminal control characters. */
@@ -15,6 +16,7 @@ public module system_monitor {
     }
     return Result.Ok(out);
   }
+
   /* Formats an available measurement with a decimal digit or an unavailable marker. */
   function decimal(value: f64) String {
     if (value < 0.0) {
@@ -27,6 +29,7 @@ public module system_monitor {
     out.append(n % 10);
     return out;
   }
+
   /* Pads a formatted value to its display column width. */
   function padded(s: const ref String, width: i64) String {
     var out = String("");

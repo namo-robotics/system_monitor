@@ -1,5 +1,6 @@
 /* Resolves explicit labels once and keeps them bound to process identities. */
 public module system_monitor {
+
   using std;
 
   /* Applies explicit names only to identities observed in the first sample. */
@@ -7,10 +8,12 @@ public module system_monitor {
     var bound: bool = false;
     var document: Json = Json();
     var identities: Map<i64, i64>;
+
     /* Initializes owned state and resources for this object. */
     init(a: const ref HeapAllocator) {
       this.identities = Map<i64, i64>(a, 16);
     }
+
     /* Applies configured labels without carrying them across PID reuse. */
     method apply(a: ref HeapAllocator, f: ref Frame) Result<void> {
       if (not this.document.is_object()) {
@@ -26,16 +29,16 @@ public module system_monitor {
               this.identities.insert(p.pid, p.start);
             }
             if (this.identities.contains(p.pid) and (try this.identities.get(p.pid)) == p.start) {
-              p.label = ((try try (try this.document.value_at(k)).as_string())).clone(a);
+              p.label = ((try (try this.document.value_at(k)).as_string())).clone(a);
             }
             break;
           }
         }
       }
       this.bound = true;
-    
- return Result.Ok;
-}
+
+      return Result.Ok;
+    }
   }
 
   /* Derives a process label from its executable and ROS remapping arguments. */
@@ -62,13 +65,13 @@ public module system_monitor {
         continue;
       }
       if (arg.starts_with("__node:=")) {
-        node = arg.substr(alloc, 8, arg.length() - 8);
+        node = (try arg.substr(alloc, 8, arg.length() - 8));
       }
       if (arg.starts_with("__name:=")) {
-        node = arg.substr(alloc, 8, arg.length() - 8);
+        node = (try arg.substr(alloc, 8, arg.length() - 8));
       }
       if (arg.starts_with("__ns:=")) {
-        ns = arg.substr(alloc, 6, arg.length() - 6);
+        ns = (try arg.substr(alloc, 6, arg.length() - 6));
       }
     }
     if (not node.is_empty()) {
@@ -85,7 +88,7 @@ public module system_monitor {
     if (p.exe.contains("component_container")) {
       p.label.append(" [shared container]");
     }
-  
- return Result.Ok;
-}
+
+    return Result.Ok;
+  }
 }

@@ -1,10 +1,13 @@
 /* Collects and presents the additional system monitors in one terminal window. */
 public module system_monitor {
+
   using std;
 
   /* Recognizes the views accepted by the command line. */
   function valid_monitor(name: const ref String) bool {
-    return name.equals_literal("menu") or name.equals_literal("process") or name.equals_literal("disk") or name.equals_literal("service") or name.equals_literal("network") or name.equals_literal("temperature");
+    return name.equals_literal("menu") or name.equals_literal("process") or
+      name.equals_literal("disk") or name.equals_literal("service") or
+      name.equals_literal("network") or name.equals_literal("temperature");
   }
 
   /* Maps the selection screen shortcuts to monitor names. */
@@ -28,7 +31,13 @@ public module system_monitor {
   }
 
   /* Draws bounded lines without allowing host data to emit terminal commands. */
-  function panel(a: ref HeapAllocator, terminal: ref Terminal, lines: ref Vec<String>, first: i64, name: const ref String) Result<void> {
+  function panel(
+    a: ref HeapAllocator,
+    terminal: ref Terminal,
+    lines: ref Vec<String>,
+    first: i64,
+    name: const ref String
+  ) Result<void> {
     (try terminal.size(a));
     var out = String("");
     var count = lines.size();
@@ -51,10 +60,10 @@ public module system_monitor {
       out.append((try safe_text(a, (try lines.get(i)), width)));
       out.append("\r\n");
     }
-    (try output(out));
-  
- return Result.Ok;
-}
+    (output(out));
+
+    return Result.Ok;
+  }
 
   /* Finds a monitor's position in the shared terminal and browser tab order. */
   function monitor_index(name: const ref String) i64 {
@@ -92,15 +101,15 @@ public module system_monitor {
       Option.None => {}
     };
     if (colon < 1) {
-      return Result.Error( Error(1, "missing interface separator"));
+      return Result.Error(Error(1, "missing interface separator"));
     }
     var traffic = Traffic();
-    traffic.name = line.substr(a, 0, colon);
+    traffic.name = (try line.substr(a, 0, colon));
     traffic.name.trim();
-    var rest = line.substr(a, colon + 1, line.length() - colon - 1);
+    var rest = (try line.substr(a, colon + 1, line.length() - colon - 1));
     var parts = rest.split_whitespace(a);
     if (parts.size() < 16) {
-      return Result.Error( Error(1, "short interface counters"));
+      return Result.Error(Error(1, "short interface counters"));
     }
     traffic.received = (try number((try parts.get(0))));
     traffic.sent = (try number((try parts.get(8))));
@@ -119,16 +128,24 @@ public module system_monitor {
 
   /* Reads an optional sensor attribute without failing the entire view. */
   function attribute(a: ref HeapAllocator, path: const ref String) String {
-    match std.io.read_to_string(a, path) {
- SystemResult.Ok(value) => { value.trim(); return value; },
- (e: const ref IError) => {
-      return String("");
-    }
- };
+    var file = path.clone(a);
+    match std.io.read_to_string(a, file) {
+      SystemResult.Ok(value) => {
+        value.trim();
+        return value;
+      },
+      (e: const ref IError) => {
+        return String("");
+      }
+    };
   }
 
   /* Joins a sysfs directory and an attribute name. */
-  function resource_path(a: const ref HeapAllocator, base: const ref String, name: const ref String) String {
+  function resource_path(
+    a: const ref HeapAllocator,
+    base: const ref String,
+    name: const ref String
+  ) String {
     var path = base.clone(a);
     path.append("/");
     path.append(name);
@@ -137,28 +154,34 @@ public module system_monitor {
 
   /** Formats a valid millidegree reading as Celsius. */
   function format_temperature(value: ref String) Result<String> {
-      var degrees = _convert<f64>((try number(value))) / 1000.0;
-      if (degrees < 0.0) {
-        var text = String("-");
-        text.append(decimal(-degrees));
-        return Result.Ok(text);
-      }
-      return Result.Ok(decimal(degrees));
-    
+    var degrees = _convert<f64>((try number(value))) / 1000.0;
+    if (degrees < 0.0) {
+      var text = String("-");
+      text.append(decimal(-degrees));
+      return Result.Ok(text);
+    }
+    return Result.Ok(decimal(degrees));
   }
 
   /* Converts a readable Linux millidegree attribute to Celsius. */
   function temperature_text(value: ref String) String {
     match format_temperature(value) {
- Result.Ok(value) => { return value; },
- (e: const ref IError) => {
-      return String("N/A");
-    }
- };
+      Result.Ok(value) => {
+        return value;
+      },
+      (e: const ref IError) => {
+        return String("N/A");
+      }
+    };
   }
 
   /* Joins utility fields while preserving names that contain spaces. */
-  function joined_fields(a: const ref HeapAllocator, fields: ref Vec<String>, first: i64, last: i64) Result<String> {
+  function joined_fields(
+    a: const ref HeapAllocator,
+    fields: ref Vec<String>,
+    first: i64,
+    last: i64
+  ) Result<String> {
     var text = String("");
     for (var i = first; i < last; i = i + 1) {
       if (i > first) {
@@ -182,14 +205,14 @@ public module system_monitor {
       var available = (try number((try fields.get(i + 2))));
       var percent: i64 = -1;
       if (capacity.ends_with("%")) {
-        var percent_text = capacity.substr(a, 0, capacity.length() - 1);
+        var percent_text = (try capacity.substr(a, 0, capacity.length() - 1));
         percent = (try number(percent_text));
         if (percent < 0) {
-          return Result.Error( Error(1, "invalid filesystem percentage"));
+          return Result.Error(Error(1, "invalid filesystem percentage"));
         }
       }
       if (total < 0 or used < 0) {
-        return Result.Error( Error(1, "invalid filesystem counters"));
+        return Result.Error(Error(1, "invalid filesystem counters"));
       }
       var row = create_json_object(a);
       (try row.set(String("filesystem"), Json((try joined_fields(a, fields, 0, i)))));
@@ -204,14 +227,14 @@ public module system_monitor {
       }
       return Result.Ok(row);
     }
-    return Result.Error( Error(1, "malformed filesystem row"));
+    return Result.Error(Error(1, "malformed filesystem row"));
   }
 
   /* Preserves the systemd unit identity, state columns and description. */
   function service_row(a: ref HeapAllocator, line: const ref String) Result<Json> {
     var fields = line.split_whitespace(a);
     if (fields.size() < 4 or not (try fields.get(0)).ends_with(".service")) {
-      return Result.Error( Error(1, "malformed service row"));
+      return Result.Error(Error(1, "malformed service row"));
     }
     var row = create_json_object(a);
     (try row.set(String("unit"), create_json_string(a, (try fields.get(0)))));
@@ -233,33 +256,44 @@ public module system_monitor {
   /* Converts signed millidegrees to Celsius, keeping unreadable values null. */
   function degrees_json(value: const ref String) Json {
     match number(value) {
- Result.Ok(value) => { return Json(_convert<f64>(value) / 1000.0); },
- (e: const ref IError) => {
-      return Json();
-    }
- };
+      Result.Ok(value) => {
+        return Json(_convert<f64>(value) / 1000.0);
+      },
+      (e: const ref IError) => {
+        return Json();
+      }
+    };
   }
 
   /* Describes a sensor without treating a missing threshold as a healthy reading. */
-  function sensor_row(a: ref HeapAllocator, name: const ref String, value: const ref String, critical: const ref String) Result<Json> {
+  function sensor_row(
+    a: ref HeapAllocator,
+    name: const ref String,
+    value: const ref String,
+    critical: const ref String
+  ) Result<Json> {
     var row = create_json_object(a);
     (try row.set(String("sensor"), create_json_string(a, name)));
     (try row.set(String("celsius"), degrees_json(value)));
     (try row.set(String("critical_celsius"), degrees_json(critical)));
     var status = String("unavailable");
     match number(value) {
- Result.Ok(value) => { var current = value;
-      status = String("no threshold");
-      match number(critical) {
- Result.Ok(value) => { var limit = value;
-        status = String("normal");
-        if (current >= limit) {
-          status = String("critical");
-        } },
- (e: const ref IError) => {}
- }; },
- (e: const ref IError) => {}
- };
+      Result.Ok(value) => {
+        var current = value;
+        status = String("no threshold");
+        match number(critical) {
+          Result.Ok(value) => {
+            var limit = value;
+            status = String("normal");
+            if (current >= limit) {
+              status = String("critical");
+            }
+          },
+          (e: const ref IError) => {}
+        };
+      },
+      (e: const ref IError) => {}
+    };
     (try row.set(String("status"), Json(status)));
     return Result.Ok(row);
   }
@@ -292,7 +326,11 @@ public module system_monitor {
     }
 
     /* Runs a fixed read-only system utility without shell interpolation. */
-    method command(a: ref HeapAllocator, program: const ref String, arguments: const ref String) Result<void> {
+    method command(
+      a: ref HeapAllocator,
+      program: const ref String,
+      arguments: const ref String
+    ) Result<void> {
       var cmd = std.process.Command(a, program);
       var parts = arguments.split_whitespace(a);
       for (var i: i64 = 0; i < parts.size(); i = i + 1) {
@@ -305,7 +343,7 @@ public module system_monitor {
           this.lines.push((try rows.get(i)).clone(a));
         }
       }
-      if ((try result.status()) != 0) {
+      if ((result.status()) != 0) {
         this.message = String("Unavailable: system utility could not complete.");
         this.lines.push(this.message.clone(a));
         var errors = result.stderr().split(a, 10u8);
@@ -315,38 +353,46 @@ public module system_monitor {
           this.message.append((try errors.get(0)));
         }
       }
-    
- return Result.Ok;
-}
+
+      return Result.Ok;
+    }
 
     /* Reads filesystem capacity in portable POSIX blocks. */
     method disks(a: ref HeapAllocator) Result<void> {
-      this.lines.push(String("Filesystem usage (1024-byte blocks); Available excludes reserved space."));
+      this.lines.push(
+        String("Filesystem usage (1024-byte blocks); Available excludes reserved space.")
+      );
       this.lines.push(String(""));
       (try this.command(a, String("df"), String("-Pk")));
       for (var i: i64 = 3; i < this.lines.size(); i = i + 1) {
         match disk_row(a, (try this.lines.get(i))) {
- Result.Ok(value) => { this.rows.push(value); },
- (e: const ref IError) => {}
- };
+          Result.Ok(value) => {
+            (try this.rows.push(value));
+          },
+          (e: const ref IError) => {}
+        };
       }
       if (this.rows.len() == 0 and this.message.is_empty()) {
         this.message = String("No filesystem measurements available.");
       }
-    
- return Result.Ok;
-}
+
+      return Result.Ok;
+    }
 
     /* Lists all loaded system services, including inactive and failed units. */
     method services(a: ref HeapAllocator) Result<void> {
       if (_target_is("linux")) {
         this.lines.push(String("System services: ACTIVE / SUB / LOAD / UNIT"));
         this.lines.push(String("Includes inactive loaded units; failed units show 'failed'."));
-        (try this.command(a, String("systemctl"), String("list-units --type=service --all --no-pager --plain --no-legend")));
+        (try this.command(
+          a,
+          String("systemctl"),
+          String("list-units --type=service --all --no-pager --plain --no-legend")
+        ));
         for (var i: i64 = 2; i < this.lines.size(); i = i + 1) {
           var fields = (try this.lines.get(i)).split_whitespace(a);
           if (fields.size() >= 4 and (try fields.get(0)).ends_with(".service")) {
-            this.rows.push((try service_row(a, (try this.lines.get(i)))));
+            (try this.rows.push((try service_row(a, (try this.lines.get(i))))));
             var row = padded((try fields.get(2)), 11);
             row.append(padded((try fields.get(3)), 14));
             row.append(padded((try fields.get(1)), 11));
@@ -356,23 +402,29 @@ public module system_monitor {
           }
         }
       } else {
-        this.lines.push(String("Launch agents in the current launchd domain: PID / last exit status / label"));
+        this.lines.push(
+          String("Launch agents in the current launchd domain: PID / last exit status / label")
+        );
         (try this.command(a, String("launchctl"), String("list")));
         this.message = String("Structured service metrics require systemd on Linux.");
       }
-    
- return Result.Ok;
-}
+
+      return Result.Ok;
+    }
 
     /* Reads per-interface traffic and calculates rates using actual elapsed time. */
     method network(a: ref HeapAllocator, now: i64) Result<void> {
       if (not _target_is("linux")) {
-        this.lines.push(String("Interface totals from netstat; bytes, packets, errors and drops."));
+        this.lines.push(
+          String("Interface totals from netstat; bytes, packets, errors and drops.")
+        );
         (try this.command(a, String("netstat"), String("-ibn")));
         this.message = String("Structured network metrics require Linux procfs.");
         return Result.Ok;
       }
-      this.lines.push(String("INTERFACE  STATE  RX KiB/s  TX KiB/s  RX MiB  TX MiB  ERRORS  DROPS"));
+      this.lines.push(
+        String("INTERFACE  STATE  RX KiB/s  TX KiB/s  RX MiB  TX MiB  ERRORS  DROPS")
+      );
       this.lines.push(String("N/A rates need a baseline or indicate a counter reset."));
       var text = (try std.io.read_to_string(a, "/proc/net/dev"));
       var rows = text.split(a, 10u8);
@@ -413,7 +465,7 @@ public module system_monitor {
           state = String("N/A");
         }
         (try record.set(String("state"), create_json_string(a, state)));
-        this.rows.push(record);
+        (try this.rows.push(record));
         var row = t.name.clone(a);
         row.append("  ");
         row.append(state);
@@ -434,15 +486,20 @@ public module system_monitor {
       }
       this.previous = current;
       this.elapsed = now;
-    
- return Result.Ok;
-}
+
+      return Result.Ok;
+    }
 
     /* Adds a sensor with its optional critical threshold. */
-    method sensor(a: ref HeapAllocator, name: String, path: const ref String, critical_path: const ref String) Result<void> {
+    method sensor(
+      a: ref HeapAllocator,
+      name: String,
+      path: const ref String,
+      critical_path: const ref String
+    ) Result<void> {
       var value = attribute(a, path);
       var critical = attribute(a, critical_path);
-      this.rows.push((try sensor_row(a, name, value, critical)));
+      (try this.rows.push((try sensor_row(a, name, value, critical))));
       var row = name;
       row.append("  ");
       row.append(temperature_text(value));
@@ -450,50 +507,70 @@ public module system_monitor {
       row.append(temperature_text(critical));
       row.append(" C");
       match number(critical) {
- Result.Ok(limit) => { match number(value) { Result.Ok(current) => { if (current >= limit) { row.append("  CRITICAL"); } }, (e: const ref IError) => {} }; },
- (e: const ref IError) => {}
- };
+        Result.Ok(limit) => {
+          match number(value) {
+            Result.Ok(current) => {
+              if (current >= limit) {
+                row.append("  CRITICAL");
+              }
+            },
+            (e: const ref IError) => {}
+          };
+        },
+        (e: const ref IError) => {}
+      };
       this.lines.push(row);
-    
- return Result.Ok;
-}
+
+      return Result.Ok;
+    }
 
     /** Collects readable temperature attributes from one hardware monitor. */
-  method hwmon_device(a: ref HeapAllocator, base: const ref String, device: const ref String) Result<i64> {
- var sensors: i64 = 0;
-            var chip = attribute(a, resource_path(a, base, String("name")));
-            var files = (try std.io.read_dir(a, base));
-            for (var j: i64 = 0; j < files.size(); j = j + 1) {
-              var name: ref String = (try files.get(j)).name();
-              if (not name.starts_with("temp") or not name.ends_with("_input")) {
-                continue;
-              }
-              var stem = name.substr(a, 0, name.length() - 6);
-              var label_name = stem.clone(a);
-              label_name.append("_label");
-              var label = attribute(a, resource_path(a, base, label_name));
-              if (label.is_empty()) {
-                label = stem.clone(a);
-              }
-              var title = device.clone(a);
-              title.append("/");
-              title.append(chip);
-              title.append("/");
-              title.append(label);
-              var crit_name = stem.clone(a);
-              crit_name.append("_crit");
-              (try this.sensor(a, title, resource_path(a, base, name), resource_path(a, base, crit_name)));
-              sensors = sensors + 1;
-            }
-          
- return Result.Ok(sensors);
-  }
+    method hwmon_device(
+      a: ref HeapAllocator,
+      base: ref String,
+      device: const ref String
+    ) Result<i64> {
+      var sensors: i64 = 0;
+      var chip = attribute(a, resource_path(a, base, String("name")));
+      var files = (try std.io.read_dir(a, base));
+      for (var j: i64 = 0; j < files.size(); j = j + 1) {
+        var name: ref String = (try files.get(j)).name();
+        if (not name.starts_with("temp") or not name.ends_with("_input")) {
+          continue;
+        }
+        var stem = (try name.substr(a, 0, name.length() - 6));
+        var label_name = stem.clone(a);
+        label_name.append("_label");
+        var label = attribute(a, resource_path(a, base, label_name));
+        if (label.is_empty()) {
+          label = stem.clone(a);
+        }
+        var title = device.clone(a);
+        title.append("/");
+        title.append(chip);
+        title.append("/");
+        title.append(label);
+        var crit_name = stem.clone(a);
+        crit_name.append("_crit");
+        (try this.sensor(
+          a,
+          title,
+          resource_path(a, base, name),
+          resource_path(a, base, crit_name)
+        ));
+        sensors = sensors + 1;
+      }
 
-  /* Discovers Linux hardware sensors and falls back to thermal zones. */
+      return Result.Ok(sensors);
+    }
+
+    /* Discovers Linux hardware sensors and falls back to thermal zones. */
     method temperatures(a: ref HeapAllocator) Result<void> {
       this.lines.push(String("SENSOR  TEMPERATURE  CRITICAL THRESHOLD"));
       if (not _target_is("linux")) {
-        this.message = String("Unavailable: macOS does not expose temperatures through a supported public API.");
+        this.message = String(
+          "Unavailable: macOS does not expose temperatures through a supported public API."
+        );
         this.lines.push(this.message.clone(a));
         return Result.Ok;
       }
@@ -503,9 +580,11 @@ public module system_monitor {
         for (var i: i64 = 0; i < devices.size(); i = i + 1) {
           var base = resource_path(a, String("/sys/class/hwmon"), (try devices.get(i)).name());
           match this.hwmon_device(a, base, (try devices.get(i)).name()) {
- Result.Ok(value) => { sensors = sensors + value; },
- (e: const ref IError) => {}
- };
+            Result.Ok(value) => {
+              sensors = sensors + value;
+            },
+            (e: const ref IError) => {}
+          };
         }
       }
       if (sensors == 0 and std.io.exists("/sys/class/thermal")) {
@@ -523,43 +602,44 @@ public module system_monitor {
         }
       }
       if (sensors == 0) {
-        this.message = String("Unavailable: no readable hardware temperature sensors were exposed by this host.");
+        this.message = String(
+          "Unavailable: no readable hardware temperature sensors were exposed by this host."
+        );
         this.lines.push(this.message.clone(a));
       }
-    
- return Result.Ok;
-}
+
+      return Result.Ok;
+    }
 
     /** Collects the selected resource view and propagates unavailable data. */
-  method collect_view(a: ref HeapAllocator, name: const ref String, now: i64) Result<void> {
-        if (name.equals_literal("disk")) {
-          (try this.disks(a));
-        } else if (name.equals_literal("service")) {
-          (try this.services(a));
-        } else if (name.equals_literal("network")) {
-          (try this.network(a, now));
-        } else if (name.equals_literal("temperature")) {
-          (try this.temperatures(a));
-        }
-      
-  
- return Result.Ok;
-}
+    method collect_view(a: ref HeapAllocator, name: const ref String, now: i64) Result<void> {
+      if (name.equals_literal("disk")) {
+        (try this.disks(a));
+      } else if (name.equals_literal("service")) {
+        (try this.services(a));
+      } else if (name.equals_literal("network")) {
+        (try this.network(a, now));
+      } else if (name.equals_literal("temperature")) {
+        (try this.temperatures(a));
+      }
 
-  /* Collects one view and keeps failures visible without exiting the monitor. */
+      return Result.Ok;
+    }
+
+    /* Collects one view and keeps failures visible without exiting the monitor. */
     method sample(a: ref HeapAllocator, name: const ref String, now: i64) void {
       this.lines = Vec<String>(a, 32);
       this.rows = create_json_array(a);
       this.message = String("");
       match this.collect_view(a, name, now) {
- Result.Ok => {  },
- (e: const ref IError) => {
-        var message = String("Unavailable: ");
-        message.append(e.message());
-        this.message = message.clone(a);
-        this.lines.push(message);
-      }
- };
+        Result.Ok => {},
+        (e: const ref IError) => {
+          var message = String("Unavailable: ");
+          message.append(e.message());
+          this.message = message.clone(a);
+          this.lines.push(message);
+        }
+      };
       this.samples = this.samples + 1;
     }
 
@@ -605,8 +685,8 @@ public module system_monitor {
       footer.append(this.lines.size());
       page.push(footer);
       (try panel(a, terminal, page, 0, name));
-    
- return Result.Ok;
-}
+
+      return Result.Ok;
+    }
   }
 }

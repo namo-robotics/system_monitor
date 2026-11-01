@@ -1,10 +1,13 @@
 /* Coordinates sampling, presentation, and recording without coupling collectors to UI. */
 public module system_monitor {
+
   using std;
 
   /* Prints the supported first-version command-line interface. */
   function help() void {
-    println("Usage: system_monitor [options]\n  --monitor NAME            process|disk|service|network|temperature\n                            default process; terminal numbers 1-5 select tabs\n  --ui terminal|web|both      default terminal; web on Linux x86_64\n  --port PORT                localhost web port, default 29583\n  --top N|all                 default 10\n  --sort cpu|memory           default cpu\n  --interval SECONDS         default 1, minimum 0.1\n  --graph-window SECONDS     graph time span, default 60\n  --history SECONDS          default 600\n  --memory-limit MiB         retained history ceiling, default 64\n  --record FILE              write all samples as JSON Lines\n  --replay FILE              replay a recorded session\n  --labels FILE              JSON object mapping PID strings to labels\n  --samples N                exit after N samples\n  --version                  show the build commit\n  --help                     show this help\n\nTerminal: 1-5 tabs, Tab focus, Left/Right choose tab, Down/Enter view, q quit, c/m sort, f/0/a top 5/10/all, Up/Down select (Up at first row focuses tabs), t terminate, k kill, space pause, ? help");
+    println(
+      "Usage: system_monitor [options]\n  --monitor NAME            process|disk|service|network|temperature\n                            default process; terminal numbers 1-5 select tabs\n  --ui terminal|web|both      default terminal; web on Linux x86_64\n  --port PORT                localhost web port, default 29583\n  --top N|all                 default 10\n  --sort cpu|memory           default cpu\n  --interval SECONDS         default 1, minimum 0.1\n  --graph-window SECONDS     graph time span, default 60\n  --history SECONDS          default 600\n  --memory-limit MiB         retained history ceiling, default 64\n  --record FILE              write all samples as JSON Lines\n  --replay FILE              replay a recorded session\n  --labels FILE              JSON object mapping PID strings to labels\n  --samples N                exit after N samples\n  --version                  show the build commit\n  --help                     show this help\n\nTerminal: 1-5 tabs, Tab focus, Left/Right choose tab, Down/Enter view, q quit, c/m sort, f/0/a top 5/10/all, Up/Down select (Up at first row focuses tabs), t terminate, k kill, space pause, ? help"
+    );
   }
 
   /* Owns the independent pieces of a monitoring session. */
@@ -31,9 +34,9 @@ public module system_monitor {
       (try this.load_labels(a));
       (try this.open_replay(a));
       (try this.open_recording(a));
-    
- return Result.Ok;
-}
+
+      return Result.Ok;
+    }
 
     /* Validates the complete explicit label file before collection. */
     method load_labels(a: ref HeapAllocator) Result<void> {
@@ -43,17 +46,17 @@ public module system_monitor {
       var text = (try std.io.read_to_string(a, this.options.labels));
       this.labels.document = (try parse_json(a, text));
       if (not this.labels.document.is_object()) {
-        return Result.Error( Error(1, "labels must be a JSON object"));
+        return Result.Error(Error(1, "labels must be a JSON object"));
       }
       for (var k: i64 = 0; k < this.labels.document.len(); k = k + 1) {
         var pid = (try number((try this.labels.document.key_at(k))));
         if (pid < 0 or not (try this.labels.document.value_at(k)).is_string()) {
-          return Result.Error( Error(1, "labels require PID keys and string values"));
+          return Result.Error(Error(1, "labels require PID keys and string values"));
         }
       }
-    
- return Result.Ok;
-}
+
+      return Result.Ok;
+    }
 
     /* Validates the recording header before accepting replay samples. */
     method open_replay(a: ref HeapAllocator) Result<void> {
@@ -63,12 +66,13 @@ public module system_monitor {
       (try this.replay.file.open(this.options.replay, std.io.FileMode.Read));
       var line = (try this.replay.line(a));
       var meta = (try parse_json(a, line));
-      if (((try try (try meta.get("version")).as_i64())) != 1 or not ((try try (try meta.get("type")).as_string())).equals_literal("session")) {
-        return Result.Error( Error(1, "unsupported recording header"));
+      if (((try (try meta.get("version")).as_i64())) != 1 or
+        not ((try (try meta.get("type")).as_string())).equals_literal("session")) {
+        return Result.Error(Error(1, "unsupported recording header"));
       }
-    
- return Result.Ok;
-}
+
+      return Result.Ok;
+    }
 
     /* Opens a new recording without overwriting an existing session. */
     method open_recording(a: ref HeapAllocator) Result<void> {
@@ -76,14 +80,14 @@ public module system_monitor {
         return Result.Ok;
       }
       if (std.io.exists(this.options.record)) {
-        return Result.Error( Error(1, "recording file already exists; choose a new path"));
+        return Result.Error(Error(1, "recording file already exists; choose a new path"));
       }
       (try this.recording.open(this.options.record, std.io.FileMode.Write));
       var header = (try metadata(a, this.options));
       (try write_record(this.recording, header));
-    
- return Result.Ok;
-}
+
+      return Result.Ok;
+    }
 
     /* Collects live data and applies identity-aware calculations and labels. */
     method live_frame(a: ref HeapAllocator, elapsed: i64) Result<Frame> {
@@ -103,7 +107,7 @@ public module system_monitor {
       var doc = (try parse_json(a, line));
       var frame = (try decode_frame(a, doc));
       if (frame.elapsed < this.replay.last_elapsed) {
-        return Result.Error( Error(1, "recording timestamps must be monotonic"));
+        return Result.Error(Error(1, "recording timestamps must be monotonic"));
       }
       this.replay.last_elapsed = frame.elapsed;
       return Result.Ok(frame);
@@ -128,9 +132,9 @@ public module system_monitor {
       (try this.history.add((try frame.copy(a))));
       this.previous = frame;
       this.samples = this.samples + 1;
-    
- return Result.Ok;
-}
+
+      return Result.Ok;
+    }
 
     /* Reports whether a finite sampling request has completed. */
     method reached_limit() bool {
@@ -140,11 +144,11 @@ public module system_monitor {
     /* Flushes recorded data before the session closes. */
     method finish() Result<void> {
       if (this.recording.is_open()) {
-        this.recording.sync();
+        try this.recording.sync();
       }
-    
- return Result.Ok;
-}
+
+      return Result.Ok;
+    }
   }
 
   /* Runs the event loop with terminal restoration handled by ownership. */
@@ -176,13 +180,15 @@ public module system_monitor {
       if (now >= due) {
         if ((hosting or process_view) and not session.finished) {
           (try session.sample(a, now));
-          (try web.publish(a, session));
+          (web.publish(a, session));
         }
-        (try web.publish_resources(a, now));
+        (web.publish_resources(a, now));
         if (not process_view and not session.options.ui.equals_literal("web")) {
-          (try resources.sample(a, session.options.monitor, now));
+          (resources.sample(a, session.options.monitor, now));
           if (terminal.active) {
-            (try resource_view.history.add((try resource_frame(a, resources, session.options.monitor, now))));
+            (try resource_view.history.add(
+              (try resource_frame(a, resources, session.options.monitor, now))
+            ));
           }
         }
         due = now + session.options.interval;
@@ -200,16 +206,20 @@ public module system_monitor {
           }
         }
       }
-      if (((hosting or process_view) and session.reached_limit()) or (not process_view and session.options.samples > 0 and resources.samples >= session.options.samples) or (session.finished and not terminal.active and session.options.ui.equals_literal("terminal") and process_view)) {
+      if (((hosting or process_view) and session.reached_limit()) or
+        (not process_view and session.options.samples > 0 and
+          resources.samples >= session.options.samples) or
+        (session.finished and not terminal.active and
+          session.options.ui.equals_literal("terminal") and process_view)) {
         break;
       }
       std.time.sleep(std.time.create_duration_millis(50));
     }
     web.close();
     (try session.finish());
-  
- return Result.Ok;
-}
+
+    return Result.Ok;
+  }
 
   /* Parses configuration and starts one monitor session. */
   function run(argc: i32, argv: raw_ptr<raw_ptr<u8>>) Result<i32> {
@@ -234,13 +244,15 @@ public module system_monitor {
   /* Runs the public CLI boundary and reports failures after resources unwind. */
   public function entry(argc: i32, argv: raw_ptr<raw_ptr<u8>>) i32 {
     match run(argc, argv) {
- Result.Ok(value) => { return value; },
- (e: const ref IError) => {
-      var message = e.message();
-      message.append("\n");
-      unsafe { pm_write(2, message.bytes(), message.length()); };
-      return 1;
-    }
- };
+      Result.Ok(value) => {
+        return value;
+      },
+      (e: const ref IError) => {
+        var message = e.message();
+        message.append("\n");
+        unsafe { pm_write(2, message.bytes(), message.length()); };
+        return 1;
+      }
+    };
   }
 }

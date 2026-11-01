@@ -1,5 +1,6 @@
 /* Deterministic resource ranking that never alters collected samples. */
 public module system_monitor {
+
   using std;
 
   /* Returns stable descending row indices without moving process samples. */

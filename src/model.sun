@@ -1,5 +1,6 @@
 /* Process samples, bounded history, and display-independent serialization. */
 public module system_monitor {
+
   using std;
 
   /* Owns the identity, metadata, and measurements of one process. */
@@ -13,6 +14,7 @@ public module system_monitor {
     var exe: String = String("");
     var args: String = String("");
     var label: String = String("");
+
     /* Formats a stable identity from the PID and process start marker. */
     method id() String {
       var s = String("");
@@ -30,10 +32,12 @@ public module system_monitor {
     var total_memory: i64 = 0;
     var inaccessible: i64 = 0;
     var processes: Vec<Process>;
+
     /* Initializes owned state and resources for this object. */
     init(alloc: const ref HeapAllocator) {
       this.processes = Vec<Process>(alloc, 64);
     }
+
     /* Copies display measurements while keeping raw baselines in the live frame. */
     method copy(a: const ref HeapAllocator) Result<Frame> {
       var out = Frame(a);
@@ -55,6 +59,7 @@ public module system_monitor {
       }
       return Result.Ok(out);
     }
+
     /* Estimates owned storage conservatively for history budgeting. */
     method cost() Result<i64> {
       var n: i64 = _sizeof<Frame>() + 128 + this.processes.capacity() * _sizeof<Process>();

@@ -1,16 +1,35 @@
 /* Apple Silicon process collection through libproc and sysctl. */
 public module system_monitor {
+
   using std;
+
   /* Lists process identifiers visible to the caller. */
   extern "C" function pm_listpids(kind: u32, info: u32, out: raw_ptr<u8>, size: i32) i32 as "proc_listpids";
+
   /* Copies one libproc information record into a caller-owned buffer. */
   extern "C" function pm_pidinfo(pid: i32, flavor: i32, arg: u64, out: raw_ptr<u8>, size: i32) i32 as "proc_pidinfo";
+
   /* Resolves a process executable path when permission permits. */
   extern "C" function pm_pidpath(pid: i32, out: raw_ptr<u8>, size: u32) i32 as "proc_pidpath";
+
   /* Reads a named system setting. */
-  extern "C" function pm_sysctlbyname(name: raw_ptr<u8>, out: raw_ptr<u8>, size: raw_ptr<u64>, input: raw_ptr<u8>, input_size: u64) i32 as "sysctlbyname";
+  extern "C" function pm_sysctlbyname(
+    name: raw_ptr<u8>,
+    out: raw_ptr<u8>,
+    size: raw_ptr<u64>,
+    input: raw_ptr<u8>,
+    input_size: u64
+  ) i32 as "sysctlbyname";
+
   /* Reads a numbered system setting, including process arguments. */
-  extern "C" function pm_sysctl(name: raw_ptr<u8>, count: u32, out: raw_ptr<u8>, size: raw_ptr<u64>, input: raw_ptr<u8>, input_size: u64) i32 as "sysctl";
+  extern "C" function pm_sysctl(
+    name: raw_ptr<u8>,
+    count: u32,
+    out: raw_ptr<u8>,
+    size: raw_ptr<u64>,
+    input: raw_ptr<u8>,
+    input_size: u64
+  ) i32 as "sysctl";
 
   /* Describes libproc's BSD process identity record. */
   class BsdInfo {
@@ -26,8 +45,58 @@ public module system_monitor {
     var svuid: u32 = 0;
     var svgid: u32 = 0;
     var reserved: u32 = 0;
-    var comm: array<u8, 16> = [0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8];
-    var name: array<u8, 32> = [0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8];
+    var comm: array<u8, 16> = [
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8
+    ];
+    var name: array<u8, 32> = [
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8,
+      0u8
+    ];
     var files: u32 = 0;
     var pgid: u32 = 0;
     var job: u32 = 0;
@@ -43,12 +112,15 @@ public module system_monitor {
     var numerator: u32 = 0;
     var denominator: u32 = 0;
   }
+
   /* Reads the native Mach clock conversion. */
   extern "C" function pm_timebase(info: raw_ptr<u8>) i32 as "mach_timebase_info";
+
   /* Returns the frequency of libproc's native Mach CPU counters. */
   function clock_ticks() Result<i64> {
     var info = MachTimebase();
-    if (unsafe { pm_timebase(_bitcast<raw_ptr<u8>>(_address_of<MachTimebase>(info))); } != 0 or info.numerator == 0) {
+    if (unsafe { pm_timebase(_bitcast<raw_ptr<u8>>(_address_of<MachTimebase>(info))); } != 0 or
+      info.numerator == 0) {
       return Result.Ok(0);
     }
     return Result.Ok(1000000000 * _convert<i64>(info.denominator) / _convert<i64>(info.numerator));
@@ -59,9 +131,17 @@ public module system_monitor {
     var name = String("hw.memsize");
     var bytes: u64 = 0;
     var size: u64 = 8;
-    var rc = unsafe { pm_sysctlbyname(name.c_str(), _bitcast<raw_ptr<u8>>(_address_of<u64>(bytes)), _address_of<u64>(size), null, 0); };
+    var rc = unsafe {
+      pm_sysctlbyname(
+        name.c_str(),
+        _bitcast<raw_ptr<u8>>(_address_of<u64>(bytes)),
+        _address_of<u64>(size),
+        null,
+        0
+      );
+    };
     if (rc != 0) {
-      return Result.Error( Error(1, "cannot query physical memory"));
+      return Result.Error(Error(1, "cannot query physical memory"));
     }
     return Result.Ok(_convert<i64>(bytes));
   }
@@ -70,9 +150,11 @@ public module system_monitor {
   function darwin_identity(pid: i32) Result<i64> {
     var info = BsdInfo();
     var size = _convert<i32>(_sizeof<BsdInfo>());
-    var n = unsafe { pm_pidinfo(pid, 3, 0, _bitcast<raw_ptr<u8>>(_address_of<BsdInfo>(info)), size); };
+    var n = unsafe {
+      pm_pidinfo(pid, 3, 0, _bitcast<raw_ptr<u8>>(_address_of<BsdInfo>(info)), size);
+    };
     if (n != size) {
-      return Result.Error( Error(1, "process identity unavailable"));
+      return Result.Error(Error(1, "process identity unavailable"));
     }
     return Result.Ok(_convert<i64>(info.start_seconds * 1000000 + info.start_microseconds));
   }
@@ -83,14 +165,14 @@ public module system_monitor {
   /* Rechecks the observed identity immediately before signalling a macOS process. */
   function signal_process(a: ref HeapAllocator, pid: i32, start: i64, signal: i32) Result<void> {
     if ((try darwin_identity(pid)) != start) {
-      return Result.Error( Error(1, "process identity changed"));
+      return Result.Error(Error(1, "process identity changed"));
     }
     if (unsafe { pm_kill(pid, signal); } != 0) {
-      return Result.Error( Error(1, "signal rejected"));
+      return Result.Error(Error(1, "signal rejected"));
     }
-  
- return Result.Ok;
-}
+
+    return Result.Ok;
+  }
 
   /* Copies only argv from KERN_PROCARGS2, excluding environment variables. */
   function darwin_arguments(a: const ref HeapAllocator, pid: i32) Result<String> {
@@ -100,7 +182,9 @@ public module system_monitor {
     (try mib.set(2, pid));
     var data = ContiguousBuffer<u8>(a, 1048576);
     var size: u64 = 1048576;
-    var rc = unsafe { pm_sysctl(mib.raw_data(), 3, data.raw_data(), _address_of<u64>(size), null, 0); };
+    var rc = unsafe {
+      pm_sysctl(mib.raw_data(), 3, data.raw_data(), _address_of<u64>(size), null, 0);
+    };
     var out = String("");
     if (rc != 0 or size < 5) {
       return Result.Ok(out);
@@ -144,7 +228,7 @@ public module system_monitor {
     }
     p.args = (try darwin_arguments(a, pid));
     if ((try darwin_identity(pid)) != p.start) {
-      return Result.Error( Error(1, "process changed during collection"));
+      return Result.Error(Error(1, "process changed during collection"));
     }
     (try label_process(a, p));
     return Result.Ok(p);
@@ -158,13 +242,13 @@ public module system_monitor {
     f.total_memory = (try physical_memory());
     var needed = unsafe { pm_listpids(1, 0, null, 0); };
     if (needed <= 0) {
-      return Result.Error( Error(1, "cannot enumerate processes"));
+      return Result.Error(Error(1, "cannot enumerate processes"));
     }
     var capacity = _convert<i64>(needed) / 4 + 1024;
     var pids = ContiguousBuffer<i32>(a, capacity);
     var n = unsafe { pm_listpids(1, 0, pids.raw_data(), _convert<i32>(capacity * 4)); };
     if (n <= 0) {
-      return Result.Error( Error(1, "cannot read process list"));
+      return Result.Error(Error(1, "cannot read process list"));
     }
     for (var i: i64 = 0; i < _convert<i64>(n) / 4; i = i + 1) {
       var pid: i32 = (try pids.get(i));
@@ -172,11 +256,13 @@ public module system_monitor {
         continue;
       }
       match darwin_process(a, pid) {
- Result.Ok(value) => { f.processes.push(value); },
- (e: const ref IError) => {
-        f.inaccessible = f.inaccessible + 1;
-      }
- };
+        Result.Ok(value) => {
+          f.processes.push(value);
+        },
+        (e: const ref IError) => {
+          f.inaccessible = f.inaccessible + 1;
+        }
+      };
     }
     return Result.Ok(f);
   }

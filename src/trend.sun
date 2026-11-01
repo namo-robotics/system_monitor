@@ -1,5 +1,6 @@
 /* Time-scaled filled dot plots for the current highest resource consumers. */
 public module system_monitor {
+
   using std;
 
   /* Returns a distinct terminal color for each active graph series. */
@@ -25,6 +26,7 @@ public module system_monitor {
     var start: i64;
     var label: String;
     var color: i64 = -1;
+
     /* Copies the metadata needed to identify one plotted process. */
     init(a: const ref HeapAllocator, process: ref Process) {
       this.pid = process.pid;
@@ -38,7 +40,9 @@ public module system_monitor {
     if (end <= begin) {
       return width - 1;
     }
-    return _convert<i64>(_convert<f64>(time - begin) * _convert<f64>(width - 1) / _convert<f64>(end - begin));
+    return _convert<i64>(
+      _convert<f64>(time - begin) * _convert<f64>(width - 1) / _convert<f64>(end - begin)
+    );
   }
 
   /* Stores filled dot areas, with shorter columns in front at each time position. */
@@ -48,6 +52,7 @@ public module system_monitor {
     var masks: ContiguousBuffer<i64>;
     var owners: ContiguousBuffer<i64>;
     var depths: ContiguousBuffer<i64>;
+
     /* Allocates a character grid with finer dot coordinates inside each cell. */
     init(a: const ref HeapAllocator, width: i64, height: i64) {
       this.width = width;
@@ -84,9 +89,9 @@ public module system_monitor {
       }
       (try this.masks.set(index, (try this.masks.get(index)) | bit));
       (try this.owners.set(index, owner));
-    
- return Result.Ok;
-}
+
+      return Result.Ok;
+    }
 
     /* Fills to the baseline, giving shorter areas the color of overlapping cells. */
     method column(x: i64, top: i64, owner: i64) Result<void> {
@@ -102,9 +107,9 @@ public module system_monitor {
         }
         (try this.point(x, y, foreground));
       }
-    
- return Result.Ok;
-}
+
+      return Result.Ok;
+    }
 
     /* Interpolates the filled area between consecutive available samples. */
     method line(x0: i64, y0: i64, x1: i64, y1: i64, owner: i64) Result<void> {
@@ -125,9 +130,9 @@ public module system_monitor {
       for (var i: i64 = 0; i <= steps; i = i + 1) {
         (try this.column(x0 + dx * i / steps, y0 + dy * i / steps, owner));
       }
-    
- return Result.Ok;
-}
+
+      return Result.Ok;
+    }
 
     /* Emits a row of colored Braille dots rather than magnitude symbols. */
     method render_row(out: ref String, row: i64, colored: bool) Result<void> {
@@ -148,15 +153,16 @@ public module system_monitor {
       if (colored) {
         out.append("\x1b[0m");
       }
-    
- return Result.Ok;
-}
+
+      return Result.Ok;
+    }
   }
 
   /* Owns the active top-five identities and renders their shared history plot. */
   class TrendGraph {
     var series: Vec<TrendSeries>;
     var duration: i64 = 60000;
+
     /* Starts with no assigned colors or process identities. */
     init(a: const ref HeapAllocator) {
       this.series = Vec<TrendSeries>(a, 5);
@@ -183,9 +189,9 @@ public module system_monitor {
       }
       (try this.assign_colors(next));
       this.series = next;
-    
- return Result.Ok;
-}
+
+      return Result.Ok;
+    }
 
     /* Preserves existing colors and gives new identities unused palette slots. */
     method assign_colors(next: ref Vec<TrendSeries>) Result<void> {
@@ -207,9 +213,9 @@ public module system_monitor {
           }
         }
       }
-    
- return Result.Ok;
-}
+
+      return Result.Ok;
+    }
 
     /* Anchors startup at the first sample, then advances the fixed time window. */
     method begin(history: ref History) i64 {
@@ -223,14 +229,19 @@ public module system_monitor {
     /* Finds one common resource scale across all displayed histories. */
     method scale(history: ref History, memory: bool) Result<f64> {
       var peak: f64 = 1.0;
-      var begin = (try this.begin(history));
+      var begin = (this.begin(history));
       for (var f: i64 = 0; f < history.frames.size(); f = f + 1) {
         if ((try history.frames.get(f)).elapsed < begin) {
           continue;
         }
         for (var i: i64 = 0; i < this.series.size(); i = i + 1) {
           var item: ref TrendSeries = (try this.series.get(i));
-          var value = (try history_value((try history.frames.get(f)), item.pid, item.start, memory));
+          var value = (try history_value(
+            (try history.frames.get(f)),
+            item.pid,
+            item.start,
+            memory
+          ));
           if (value > peak) {
             peak = value;
           }
@@ -240,11 +251,17 @@ public module system_monitor {
     }
 
     /* Draws a process history while breaking the line at missing samples. */
-    method trace(canvas: ref DotCanvas, history: ref History, item: ref TrendSeries, memory: bool, peak: f64) Result<void> {
+    method trace(
+      canvas: ref DotCanvas,
+      history: ref History,
+      item: ref TrendSeries,
+      memory: bool,
+      peak: f64
+    ) Result<void> {
       if (history.frames.is_empty()) {
         return Result.Ok;
       }
-      var begin = (try this.begin(history));
+      var begin = (this.begin(history));
       var end = begin + this.duration;
       var connected = false;
       var previous_x: i64 = 0;
@@ -260,7 +277,8 @@ public module system_monitor {
           continue;
         }
         var x = time_pixel(frame.elapsed, begin, end, canvas.width * 2);
-        var y = canvas.height * 4 - 1 - _convert<i64>(value / peak * _convert<f64>(canvas.height * 4 - 1));
+        var y = canvas.height * 4 - 1 -
+          _convert<i64>(value / peak * _convert<f64>(canvas.height * 4 - 1));
         if (connected) {
           (try canvas.line(previous_x, previous_y, x, y, item.color));
         } else {
@@ -270,12 +288,19 @@ public module system_monitor {
         previous_y = y;
         connected = true;
       }
-    
- return Result.Ok;
-}
+
+      return Result.Ok;
+    }
 
     /* Writes an axis label and a raster row inside the bordered panel. */
-    method plot_row(a: const ref HeapAllocator, out: ref String, style: ref TableStyle, canvas: ref DotCanvas, row: i64, peak: f64) Result<void> {
+    method plot_row(
+      a: const ref HeapAllocator,
+      out: ref String,
+      style: ref TableStyle,
+      canvas: ref DotCanvas,
+      row: i64,
+      peak: f64
+    ) Result<void> {
       var label = String("");
       if (row == 0) {
         label = decimal(peak);
@@ -290,9 +315,9 @@ public module system_monitor {
       out.append(" ");
       style.edge(out, "│", "|");
       out.append("\r\n");
-    
- return Result.Ok;
-}
+
+      return Result.Ok;
+    }
 
     /* Identifies every line with matching colors, process names, and PIDs. */
     method legend(a: const ref HeapAllocator, out: ref String, style: ref TableStyle) Result<void> {
@@ -319,12 +344,17 @@ public module system_monitor {
         style.edge(out, "│", "|");
         out.append("\r\n");
       }
-    
- return Result.Ok;
-}
+
+      return Result.Ok;
+    }
 
     /* Displays the resource selector with only the active choice in bold. */
-    method header(a: const ref HeapAllocator, out: ref String, style: ref TableStyle, memory: bool) Result<void> {
+    method header(
+      a: const ref HeapAllocator,
+      out: ref String,
+      style: ref TableStyle,
+      memory: bool
+    ) Result<void> {
       var title = String("TOP 5 CPU HISTORY (%)  |  ");
       if (memory) {
         title = String("TOP 5 MEMORY HISTORY (RSS MiB)  |  ");
@@ -353,12 +383,19 @@ public module system_monitor {
       out.append(" ");
       style.edge(out, "│", "|");
       out.append("\r\n");
-    
- return Result.Ok;
-}
+
+      return Result.Ok;
+    }
 
     /* Renders the shared scale, time axis, and color legend for current leaders. */
-    method draw(a: const ref HeapAllocator, out: ref String, style: ref TableStyle, history: ref History, memory: bool, height: i64) Result<void> {
+    method draw(
+      a: const ref HeapAllocator,
+      out: ref String,
+      style: ref TableStyle,
+      history: ref History,
+      memory: bool,
+      height: i64
+    ) Result<void> {
       var peak = (try this.scale(history, memory));
       var canvas = DotCanvas(a, style.width - 13, height);
       for (var i = this.series.size(); i > 0; i = i - 1) {
@@ -370,7 +407,7 @@ public module system_monitor {
       for (var row: i64 = 0; row < height; row = row + 1) {
         (try this.plot_row(a, out, style, canvas, row, peak));
       }
-      var begin = (try this.begin(history)) - history.origin;
+      var begin = (this.begin(history)) - history.origin;
       var axis = String("elapsed  +");
       axis.append(decimal(_convert<f64>(begin) / 1000.0));
       axis.append("s");
@@ -383,8 +420,8 @@ public module system_monitor {
       style.rule(out, 1, false);
       (try this.legend(a, out, style));
       style.rule(out, 2, false);
-    
- return Result.Ok;
-}
+
+      return Result.Ok;
+    }
   }
 }

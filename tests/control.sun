@@ -48,9 +48,9 @@ public module system_monitor {
       (try std.test.assert_eq(reaped, pid));
       (try std.test.assert_eq(status & 127, signal));
     }
-  
- return MonitorTestResult.Ok;
-}
+
+    return MonitorTestResult.Ok;
+  }
 
   /* Blocks replay, empty selections, special PIDs, and signalling the monitor. */
   test_function process_actions_validate_targets() MonitorTestResult<void> {
@@ -78,7 +78,7 @@ public module system_monitor {
     (try std.test.assert(group.equals_literal("Cannot signal this PID"), "group rejected"));
     (try std.test.assert(init.equals_literal("Cannot signal this PID"), "init rejected"));
     (try std.test.assert(own.equals_literal("Cannot signal this PID"), "self rejected"));
-  
- return MonitorTestResult.Ok;
-}
+
+    return MonitorTestResult.Ok;
+  }
 }

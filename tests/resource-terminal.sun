@@ -1,9 +1,14 @@
 /* Checks resource history semantics and terminal layout independently of host data. */
 public module system_monitor {
+
   using std;
 
   /* Creates one optional measurement for graph continuity tests. */
-  function resource_test_frame(a: const ref HeapAllocator, elapsed: i64, valid: bool) MonitorTestResult<ResourceFrame> {
+  function resource_test_frame(
+    a: const ref HeapAllocator,
+    elapsed: i64,
+    valid: bool
+  ) MonitorTestResult<ResourceFrame> {
     var frame = ResourceFrame(a, String("disk"), elapsed);
     var reading = ResourceReading();
     reading.id = String("root");
@@ -25,14 +30,17 @@ public module system_monitor {
     (try history.trace(canvas, String("disk"), String("root"), false, 0, 0.0, 100.0, 500));
     (try std.test.assert_eq((try canvas.masks.get(5)), 0i64));
     (try std.test.assert_eq((try canvas.masks.get(16)), 0i64));
-    (try std.test.assert((try canvas.masks.get(11)) != 0 and (try canvas.masks.get(21)) != 0, "endpoints remain visible"));
+    (try std.test.assert(
+      (try canvas.masks.get(11)) != 0 and (try canvas.masks.get(21)) != 0,
+      "endpoints remain visible"
+    ));
     var line = DotCanvas(a, 11, 2);
     (try resource_stroke(line, 0, 2, 20, 2, 0));
     (try std.test.assert((try line.masks.get(5)) != 0, "line connects points"));
     (try std.test.assert_eq((try line.masks.get(16)), 0i64));
-  
- return MonitorTestResult.Ok;
-}
+
+    return MonitorTestResult.Ok;
+  }
 
   /* Evicts old measurements by time and memory without exceeding the configured estimate. */
   test_function resource_history_bounds_storage() MonitorTestResult<void> {
@@ -50,30 +58,50 @@ public module system_monitor {
     history.limit = 1;
     (try history.add((try resource_test_frame(a, 4000, true))));
     (try std.test.assert_eq(history.frames.size(), 0i64));
-  
- return MonitorTestResult.Ok;
-}
+
+    return MonitorTestResult.Ok;
+  }
 
   /* Distinguishes cold temperatures and unavailable rates, and aggregates service states. */
   test_function resource_history_preserves_measurement_meanings() MonitorTestResult<void> {
     var a = make_heap_allocator();
     var data = Resources(a);
-    data.rows = (try parse_json(a, String("[{\"sensor\":\"cold\",\"celsius\":-12.5,\"critical_celsius\":null,\"status\":\"no threshold\"}]")));
+    data.rows = (try parse_json(
+      a,
+      String(
+        "[{\"sensor\":\"cold\",\"celsius\":-12.5,\"critical_celsius\":null,\"status\":\"no threshold\"}]"
+      )
+    ));
     var cold = (try resource_frame(a, data, String("temperature"), 0));
-    (try std.test.assert((try cold.readings.get(0)).first_valid and not (try cold.readings.get(0)).second_valid, "nullable threshold"));
+    (try std.test.assert(
+      (try cold.readings.get(0)).first_valid and not (try cold.readings.get(0)).second_valid,
+      "nullable threshold"
+    ));
     (try std.test.assert_eq((try cold.readings.get(0)).first, -12.5));
-    (try std.test.assert(resource_y(-12.5, -20.0, 20.0, 4) > resource_y(12.5, -20.0, 20.0, 4), "signed scale"));
-    data.rows = (try parse_json(a, String("[{\"interface\":\"eth0\",\"rx_bytes_per_sec\":null,\"tx_bytes_per_sec\":2048}]")));
+    (try std.test.assert(
+      resource_y(-12.5, -20.0, 20.0, 4) > resource_y(12.5, -20.0, 20.0, 4),
+      "signed scale"
+    ));
+    data.rows = (try parse_json(
+      a,
+      String("[{\"interface\":\"eth0\",\"rx_bytes_per_sec\":null,\"tx_bytes_per_sec\":2048}]")
+    ));
     var net = (try resource_frame(a, data, String("network"), 0));
-    (try std.test.assert(not (try net.readings.get(0)).first_valid, "missing rate remains missing"));
+    (try std.test.assert(
+      not (try net.readings.get(0)).first_valid,
+      "missing rate remains missing"
+    ));
     (try std.test.assert_eq((try net.readings.get(0)).second, 2.0));
-    data.rows = (try parse_json(a, String("[{\"active\":\"active\"},{\"active\":\"failed\"},{\"active\":\"inactive\"}]")));
+    data.rows = (try parse_json(
+      a,
+      String("[{\"active\":\"active\"},{\"active\":\"failed\"},{\"active\":\"inactive\"}]")
+    ));
     var services = (try resource_frame(a, data, String("service"), 0));
     (try std.test.assert_eq((try services.readings.get(0)).first, 1.0));
     (try std.test.assert_eq((try services.readings.get(0)).second, 1.0));
-  
- return MonitorTestResult.Ok;
-}
+
+    return MonitorTestResult.Ok;
+  }
 
   /* Checks the minimum screen size, selection identity and visible dotted chart. */
   test_function resource_terminal_fits_and_tracks_selection() MonitorTestResult<void> {
@@ -85,12 +113,21 @@ public module system_monitor {
     o.monitor = String("temperature");
     terminal.columns = 65;
     terminal.rows = 18;
-    data.rows = (try parse_json(a, String("[{\"sensor\":\"cold\",\"celsius\":-12.5,\"critical_celsius\":80,\"status\":\"normal\"},{\"sensor\":\"hot\",\"celsius\":90,\"critical_celsius\":80,\"status\":\"critical\"}]")));
+    data.rows = (try parse_json(
+      a,
+      String(
+        "[{\"sensor\":\"cold\",\"celsius\":-12.5,\"critical_celsius\":80,\"status\":\"normal\"},{\"sensor\":\"hot\",\"celsius\":90,\"critical_celsius\":80,\"status\":\"critical\"}]"
+      )
+    ));
     (try view.history.add((try resource_frame(a, data, o.monitor, 0))));
     terminal.selected = String("hot");
     var text = (try view.render(a, data, terminal, o));
     (try std.test.assert_eq(terminal.selected_row, 1i64));
-    (try std.test.assert(text.contains("TEMPERATURE HISTORY") and text.contains("Celsius") and text.contains("critical"), "table and chart included"));
+    (try std.test.assert(
+      text.contains("TEMPERATURE HISTORY") and text.contains("Celsius") and
+        text.contains("critical"),
+      "table and chart included"
+    ));
     var lines = text.split(a, 10u8);
     (try std.test.assert(lines.size() <= terminal.rows, "no vertical overflow"));
     for (var i: i64 = 0; i < lines.size(); i = i + 1) {
@@ -107,7 +144,7 @@ public module system_monitor {
     terminal.columns = 40;
     var compact = (try view.render(a, data, terminal, o));
     (try std.test.assert(compact.contains("Enlarge terminal"), "compact fallback"));
-  
- return MonitorTestResult.Ok;
-}
+
+    return MonitorTestResult.Ok;
+  }
 }

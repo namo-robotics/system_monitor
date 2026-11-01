@@ -8,7 +8,7 @@ if [[ "$target" == x86_64-* && "$target" == *[Ll]inux* && "${SUN_WEB:-1}" != 0 ]
   mkdir -p build/share/system_monitor
   cp assets/dashboard.html build/share/system_monitor/dashboard.html
   sed -e 's|"web-disabled.sun"|"web.sun"|' \
-      -e 's|libraries: \["stdlib.moon"\]|libraries: ["stdlib.moon", "$SUN_SERVE/sun_serve.moon"]|' \
+      -e 's|"stdlib.moon"|"stdlib.moon", "$SUN_SERVE/sun_serve.moon"|' \
       -e 's|"\([^"]*\.sun\)"|"../src/\1"|g' src/main.sun > build/main.sun
 else
   sed 's|"\([^"]*\.sun\)"|"../src/\1"|g' src/main.sun > build/main.sun

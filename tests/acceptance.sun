@@ -9,8 +9,10 @@ function main(argc: i32, argv: raw_ptr<raw_ptr<u8>>) i32 {
 
 /* Owns helpers and process-level acceptance cases. */
 public module acceptance {
+
   using std;
- /** Carries application and assertion failures from test helpers. */
+
+  /** Carries application and assertion failures from test helpers. */
   public enum MonitorTestResult<T> {
     Ok(T),
     Error(Error),
@@ -30,65 +32,68 @@ public module acceptance {
     Assertion(std.test.AssertionError)
   }
 
-
   var harness: String = String("");
   /* Bounds child execution even if the application stops responding. */
   extern "C" function alarm(seconds: u32) u32;
+
   /** Runs native checks and propagates failures to the command boundary. */
-  function run_checks(a: ref HeapAllocator, argc: i32, argv: raw_ptr<raw_ptr<u8>>) MonitorTestResult<i32> {
-      if (argc > 1) {
-        var arg = from_c_str(a, unsafe { _load<raw_ptr<u8>>(argv, 1); });
-        if (arg.equals_literal("--exec") and argc > 2) {
-          var program = from_c_str(a, unsafe { _load<raw_ptr<u8>>(argv, 2); });
-          var cmd = std.process.Command(a, program);
-          for (var i: i64 = 3; i < _convert<i64>(argc); i = i + 1) {
-            cmd.add_arg(from_c_str(a, unsafe { _load<raw_ptr<u8>>(argv, i); }));
-          }
-          unsafe { alarm(15u32); };
-          (try std.process.exec(cmd));
-          return MonitorTestResult.Ok(127);
+  function run_checks(
+    a: ref HeapAllocator,
+    argc: i32,
+    argv: raw_ptr<raw_ptr<u8>>
+  ) MonitorTestResult<i32> {
+    if (argc > 1) {
+      var arg = from_c_str(a, unsafe { _load<raw_ptr<u8>>(argv, 1); });
+      if (arg.equals_literal("--exec") and argc > 2) {
+        var program = from_c_str(a, unsafe { _load<raw_ptr<u8>>(argv, 2); });
+        var cmd = std.process.Command(a, program);
+        for (var i: i64 = 3; i < _convert<i64>(argc); i = i + 1) {
+          cmd.add_arg(from_c_str(a, unsafe { _load<raw_ptr<u8>>(argv, i); }));
         }
-        if (arg.equals_literal("--workload")) {
-          /* Leave headroom for the kernel's approximate resident-page counters. */
-          var data = ContiguousBuffer<u8>(a, 41943040);
-          data.fill(1u8);
-          while (true) {
-            for (var i: i64 = 0; i < data.size(); i = i + 4096) {
-              (try data.set(i, (try data.get(i)) + 1u8));
-            }
+        unsafe { alarm(15u32); };
+        (try std.process.exec(cmd));
+        return MonitorTestResult.Ok(127);
+      }
+      if (arg.equals_literal("--workload")) {
+        /* Leave headroom for the kernel's approximate resident-page counters. */
+        var data = ContiguousBuffer<u8>(a, 41943040);
+        data.fill(1u8);
+        while (true) {
+          for (var i: i64 = 0; i < data.size(); i = i + 4096) {
+            (try data.set(i, (try data.get(i)) + 1u8));
           }
         }
       }
-      var env = std.env.Env(a);
-      var binary = String("build/system_monitor");
-      var html = String("assets/dashboard.html");
-      match env.get("PM_BIN") {
-        Option.Some(value) => {
-          binary = value.clone(a);
-          binary.append("");
-        },
-        Option.None => {}
-      };
-      match env.get("PM_DASHBOARD") {
-        Option.Some(value) => {
-          html = value.clone(a);
-          html.append("");
-        },
-        Option.None => {}
-      };
-      var temp = (try Temp(a));
-      if (argc == 1) {
-        (try invalid_options(a, binary));
-        (try resource_views(a, binary));
-        (try terminal_tabs(a, binary));
-        (try recording(a, binary, temp.path));
-        (try terminal(a, binary, temp.path, false, false));
-        (try terminal(a, binary, temp.path, true, false));
-      }
-      (try web(a, binary, html, temp.path));
-      println("PASS native acceptance: CLI, recordings, terminal, package resources, HTTP");
-      return MonitorTestResult.Ok(0);
-    
+    }
+    var env = std.env.Env(a);
+    var binary = String("build/system_monitor");
+    var html = String("assets/dashboard.html");
+    match env.get("PM_BIN") {
+      Option.Some(value) => {
+        binary = value.clone(a);
+        binary.append("");
+      },
+      Option.None => {}
+    };
+    match env.get("PM_DASHBOARD") {
+      Option.Some(value) => {
+        html = value.clone(a);
+        html.append("");
+      },
+      Option.None => {}
+    };
+    var temp = (try Temp(a));
+    if (argc == 1) {
+      (try invalid_options(a, binary));
+      (try resource_views(a, binary));
+      (try terminal_tabs(a, binary));
+      (try recording(a, binary, temp.path));
+      (try terminal(a, binary, temp.path, false, false));
+      (try terminal(a, binary, temp.path, true, false));
+    }
+    (try web(a, binary, html, temp.path));
+    println("PASS native acceptance: CLI, recordings, terminal, package resources, HTTP");
+    return MonitorTestResult.Ok(0);
   }
 
   /* Runs acceptance checks or supplies their CPU and memory workload. */
@@ -96,12 +101,14 @@ public module acceptance {
     var a = make_heap_allocator();
     harness = from_c_str(a, unsafe { _load<raw_ptr<u8>>(argv, 0); });
     match run_checks(a, argc, argv) {
- MonitorTestResult.Ok(value) => { return value; },
- (e: const ref IError) => {
-      eprintln(e.message());
-      return 1;
-    }
- };
+      MonitorTestResult.Ok(value) => {
+        return value;
+      },
+      (e: const ref IError) => {
+        eprintln(e.message());
+        return 1;
+      }
+    };
   }
 
   /* Checks direct views and rejects conflicting process-only options. */
@@ -117,34 +124,45 @@ public module acceptance {
       title.append((try views.get(i)));
       (try check(result.stdout().contains(title), "resource view title missing"));
       (try check(result.stdout().contains("sample 2"), "resource sample limit missing"));
-      (try check(not result.stdout().contains("\x1b"), "redirected resource view has ANSI escapes"));
+      (try check(
+        not result.stdout().contains("\x1b"),
+        "redirected resource view has ANSI escapes"
+      ));
     }
     (try run(a, binary, String("--monitor invalid"), 1));
     (try run(a, binary, String("--monitor disk --record unused.jsonl"), 1));
     (try run(a, binary, String("--monitor network --replay absent.jsonl"), 1));
-  
- return MonitorTestResult.Ok;
-}
+
+    return MonitorTestResult.Ok;
+  }
 
   /* Creates a unique temporary directory. */
   extern "C" function mkdtemp(path: raw_ptr<u8>) raw_ptr<u8>;
+
   /* Sends a signal to a child during cleanup. */
   extern "C" function kill(pid: i32, signal: i32) i32;
+
   /* Reaps a child during cleanup. */
   extern "C" function waitpid(pid: i32, status: raw_ptr<i32>, options: i32) i32;
 
   /* Checks an invariant with an explanatory failure. */
   function check(value: bool, message: static_ptr<u8>) MonitorTestResult<void> {
     (try std.test.assert(value, message));
-  
- return MonitorTestResult.Ok;
-}
+
+    return MonitorTestResult.Ok;
+  }
+
   /* Sleeps without spinning while a child does work. */
   function sleep(ms: i64) void {
     std.time.sleep(std.time.create_duration_millis(ms));
   }
+
   /* Builds arguments from test literals without invoking a shell. */
-  function command(a: ref HeapAllocator, binary: const ref String, args: const ref String) MonitorTestResult<std.process.Command> {
+  function command(
+    a: ref HeapAllocator,
+    binary: const ref String,
+    args: const ref String
+  ) MonitorTestResult<std.process.Command> {
     var cmd = std.process.Command(a, binary);
     var parts = args.split(a, b' ');
     for (var i: i64 = 0; i < parts.size(); i = i + 1) {
@@ -154,8 +172,14 @@ public module acceptance {
     }
     return MonitorTestResult.Ok(cmd);
   }
+
   /* Captures a command and checks its status. */
-  function run(a: ref HeapAllocator, binary: const ref String, args: String, code: i32) MonitorTestResult<std.process.Output> {
+  function run(
+    a: ref HeapAllocator,
+    binary: const ref String,
+    args: String,
+    code: i32
+  ) MonitorTestResult<std.process.Output> {
     var cmd = std.process.Command(a, harness);
     cmd.add_arg("--exec");
     cmd.add_arg(binary);
@@ -173,15 +197,18 @@ public module acceptance {
     (try check((try result.status()) == code, "unexpected command status"));
     return MonitorTestResult.Ok(result);
   }
+
   /* Removes temporary recordings even when a check throws. */
   class Temp {
     var path: String;
+
     init(a: ref HeapAllocator) MonitorTestResult<void> {
       this.path = String("/tmp/process-monitor-test-XXXXXX");
       (try check(unsafe { mkdtemp(this.path.c_str()); } != null, "mkdtemp failed"));
-    
- return MonitorTestResult.Ok;
-}
+
+      return MonitorTestResult.Ok;
+    }
+
     deinit() {
       var a = make_heap_allocator();
       var cmd = std.process.Command(a, "rm");
@@ -190,23 +217,27 @@ public module acceptance {
       ignore_error(cmd.status());
     }
   }
+
   /* Owns a child and prevents failed assertions from leaving it running. */
   class Running {
     var child: std.process.Child;
+
     init(cmd: ref std.process.Command) MonitorTestResult<void> {
-      this.child = cmd.start();
-    
- return MonitorTestResult.Ok;
-}
+      this.child = (try cmd.start());
+
+      return MonitorTestResult.Ok;
+    }
+
     deinit() {
       var pid = this.child.id();
       if (pid > 0) {
-        unsafe { kill(pid, 9); waitpid(pid, null, 0); };
+        unsafe { (try kill(pid, 9)); waitpid(pid, null, 0); };
       }
     }
+
     /* Requires graceful shutdown within a bounded interval. */
     method stop() MonitorTestResult<void> {
-      this.child.kill(15);
+      (try this.child.kill(15));
       for (var i: i64 = 0; i < 160; i = i + 1) {
         match this.child.try_wait() {
           Option.Some(code) => {
@@ -217,14 +248,20 @@ public module acceptance {
         };
         sleep(50);
       }
-      return MonitorTestResult.Error( Error(1, "child shutdown timed out"));
-    
- return MonitorTestResult.Ok;
-}
+      return MonitorTestResult.Error(Error(1, "child shutdown timed out"));
+
+      return MonitorTestResult.Ok;
+    }
   }
+
   /* Rejects malformed options and checks informational commands. */
   function invalid_options(a: ref HeapAllocator, binary: ref String) MonitorTestResult<void> {
-    var cases = String("--top 0|--sort network|--interval nan|--interval 0|--history -2|--memory-limit 0|--samples -1|--top|--ui invalid|--unknown x|--record x --replay y").split(a, b'|');
+    var cases = String(
+      "--top 0|--sort network|--interval nan|--interval 0|--history -2|--memory-limit 0|--samples -1|--top|--ui invalid|--unknown x|--record x --replay y"
+    ).split(
+      a,
+      b'|'
+    );
     for (var i: i64 = 0; i < cases.size(); i = i + 1) {
       (try run(a, binary, (try cases.get(i)).clone(a), 1));
     }
@@ -232,11 +269,16 @@ public module acceptance {
     (try check(help.stdout().contains("Usage:"), "help output"));
     var version = (try run(a, binary, String("--version"), 0));
     (try check(version.stdout().starts_with("system_monitor "), "version output"));
-  
- return MonitorTestResult.Ok;
-}
+
+    return MonitorTestResult.Ok;
+  }
+
   /* Checks collection under load, replay, overwrite refusal, and corrupt input. */
-  function recording(a: ref HeapAllocator, binary: ref String, directory: ref String) MonitorTestResult<void> {
+  function recording(
+    a: ref HeapAllocator,
+    binary: ref String,
+    directory: ref String
+  ) MonitorTestResult<void> {
     var cmd = std.process.Command(a, "build/acceptance");
     cmd.add_arg("--workload");
     cmd.set_stdout(std.process.Stdio.Null);
@@ -252,7 +294,10 @@ public module acceptance {
     var lines = text.split(a, b'\n');
     (try check(lines.size() == 6, "recording frame count"));
     var header = (try parse_json(a, (try lines.get(0))));
-    (try check((try (try header.get("type")).as_string()).equals_literal("session"), "recording header"));
+    (try check(
+      (try (try header.get("type")).as_string()).equals_literal("session"),
+      "recording header"
+    ));
     var seen: bool = false;
     var busy: bool = false;
     for (var i: i64 = 1; i < 5; i = i + 1) {
@@ -287,23 +332,37 @@ public module acceptance {
     damaged.append("/damaged.jsonl");
     var incomplete = text.clone(a);
     incomplete.append("{\"version\":");
-    std.io.write_string(damaged, incomplete);
+    (try std.io.write_string(damaged, incomplete));
     args = String("--replay ");
     args.append(damaged);
     args.append(" --interval .1");
     (try run(a, binary, args.clone(a), 0));
     text.append("broken\n");
-    std.io.write_string(damaged, text);
+    (try std.io.write_string(damaged, text));
     (try run(a, binary, args, 1));
-  
- return MonitorTestResult.Ok;
-}
+
+    return MonitorTestResult.Ok;
+  }
+
   /* Fetches one local HTTP response with a bounded network timeout. */
-  function request(a: ref HeapAllocator, base: ref String, path: static_ptr<u8>, method: static_ptr<u8>, code: static_ptr<u8>) MonitorTestResult<String> {
+  function request(
+    a: ref HeapAllocator,
+    base: ref String,
+    path: static_ptr<u8>,
+    method: static_ptr<u8>,
+    code: static_ptr<u8>
+  ) MonitorTestResult<String> {
     return MonitorTestResult.Ok((try request_path(a, base, String(path), method, code)));
   }
+
   /* Fetches an endpoint whose path includes a recorded identity. */
-  function request_path(a: ref HeapAllocator, base: ref String, path: String, method: static_ptr<u8>, code: static_ptr<u8>) MonitorTestResult<String> {
+  function request_path(
+    a: ref HeapAllocator,
+    base: ref String,
+    path: String,
+    method: static_ptr<u8>,
+    code: static_ptr<u8>
+  ) MonitorTestResult<String> {
     var cmd = std.process.Command(a, "curl");
     cmd.add_arg("--silent");
     cmd.add_arg("--show-error");
@@ -323,38 +382,60 @@ public module acceptance {
     (try check((try out.status()) == 0, "HTTP request failed"));
     var body = out.stdout();
     (try check(body.ends_with(code), "unexpected HTTP status"));
-    return MonitorTestResult.Ok(body.substr(a, 0, body.length() - 4));
+    return MonitorTestResult.Ok((try body.substr(a, 0, body.length() - 4)));
   }
+
   /** Reads a publication and reports whether the requested sampling state is ready. */
-  function ready_view(a: ref HeapAllocator, base: ref String, finished: bool) MonitorTestResult<Option<Json>> {
-        var body = (try request(a, base, "/api/v1/view", "GET", "200"));
-        var view = (try parse_json(a, body));
-        if (not (try view.get("snapshot")).is_null()) {
-          if (finished) {
-            if ((try (try (try view.get("status")).get("finished")).as_bool())) {
-              return MonitorTestResult.Ok(Option.Some(view));
-            }
-          } else if ((try (try (try view.get("snapshot")).get("elapsed_ms")).as_i64()) >= 500) {
-            return MonitorTestResult.Ok(Option.Some(view));
-          }
+  function ready_view(
+    a: ref HeapAllocator,
+    base: ref String,
+    finished: bool
+  ) MonitorTestResult<Option<Json>> {
+    var body = (try request(a, base, "/api/v1/view", "GET", "200"));
+    var view = (try parse_json(a, body));
+    if (not (try view.get("snapshot")).is_null()) {
+      if (finished) {
+        if ((try (try (try view.get("status")).get("finished")).as_bool())) {
+          return MonitorTestResult.Ok(Option.Some(view));
         }
-      
- return MonitorTestResult.Ok(Option.None);
+      } else if ((try (try (try view.get("snapshot")).get("elapsed_ms")).as_i64()) >= 500) {
+        return MonitorTestResult.Ok(Option.Some(view));
+      }
+    }
+
+    return MonitorTestResult.Ok(Option.None);
   }
 
   /* Waits for a consistent publication, allowing server startup and sampling. */
-  function wait_view(a: ref HeapAllocator, base: ref String, finished: bool) MonitorTestResult<Json> {
+  function wait_view(
+    a: ref HeapAllocator,
+    base: ref String,
+    finished: bool
+  ) MonitorTestResult<Json> {
     for (var i: i64 = 0; i < 100; i = i + 1) {
       match ready_view(a, base, finished) {
- MonitorTestResult.Ok(value) => { match value { Option.Some(view) => { return MonitorTestResult.Ok(view); }, Option.None => {} }; },
- (e: const ref IError) => {}
- };
+        MonitorTestResult.Ok(value) => {
+          match value {
+            Option.Some(view) => {
+              return MonitorTestResult.Ok(view);
+            },
+            Option.None => {}
+          };
+        },
+        (e: const ref IError) => {}
+      };
       sleep(50);
     }
-    return MonitorTestResult.Error( Error(1, "server did not publish in time"));
+    return MonitorTestResult.Error(Error(1, "server did not publish in time"));
   }
+
   /* Verifies the resource bytes, APIs, retention, bind failures, and replay. */
-  function web(a: ref HeapAllocator, binary: ref String, html: ref String, directory: ref String) MonitorTestResult<void> {
+  function web(
+    a: ref HeapAllocator,
+    binary: ref String,
+    html: ref String,
+    directory: ref String
+  ) MonitorTestResult<void> {
     var env = std.env.Env(a);
     var uname = (try run(a, String("uname"), String("-m"), 0));
     var enabled: bool = _target_is("linux") and uname.stdout().starts_with("x86_64");
@@ -384,7 +465,10 @@ public module acceptance {
     cmd.set_stderr(std.process.Stdio.Null);
     var server = (try Running(cmd));
     var view = (try wait_view(a, base, false));
-    (try check((try (try (try view.get("status")).get("evicted")).as_bool()), "history retention missing"));
+    (try check(
+      (try (try (try view.get("status")).get("evicted")).as_bool()),
+      "history retention missing"
+    ));
     var resources_text = (try request(a, base, "/api/v1/resources", "GET", "200"));
     var resources = (try parse_json(a, resources_text));
     var names = String("disk service network temperature").split_whitespace(a);
@@ -395,9 +479,15 @@ public module acceptance {
       (try check((try resource.get("lines")).len() > 0, "web resource rows missing"));
       (try check((try (try resource.get("samples")).as_i64()) > 0, "web resource sample missing"));
       (try check((try resource.get("rows")).is_array(), "structured resource rows missing"));
-      (try check((try resource.get("message")).is_string(), "resource availability message missing"));
+      (try check(
+        (try resource.get("message")).is_string(),
+        "resource availability message missing"
+      ));
     }
-    (try check((try (try resources.get("timestamp_ms")).as_i64()) > 0, "resource timestamp missing"));
+    (try check(
+      (try (try resources.get("timestamp_ms")).as_i64()) > 0,
+      "resource timestamp missing"
+    ));
     (try request(a, base, "/api/v1/resources", "POST", "405"));
     var actual = (try request(a, base, "/", "GET", "200"));
     var expected = (try std.io.read_to_string(a, html));
@@ -430,11 +520,19 @@ public module acceptance {
       (try check((try response.status()) == 0, "concurrent HTTP request failed"));
       var current = (try parse_json(a, response.stdout()));
       var frames: ref Json = (try current.get("history"));
-      (try check((try frames.at(frames.len() - 1)).to_string(a).equals((try current.get("snapshot")).to_string(a)), "inconsistent publication"));
+      (try check(
+        (try frames.at(frames.len() - 1)).to_string(a).equals(
+          (try current.get("snapshot")).to_string(a)
+        ),
+        "inconsistent publication"
+      ));
     }
     (try server.stop());
     var recorded = (try std.io.read_to_string(a, recording));
-    (try check(recorded.contains((try view.get("snapshot")).to_string(a)), "web and recording differ"));
+    (try check(
+      recorded.contains((try view.get("snapshot")).to_string(a)),
+      "web and recording differ"
+    ));
     var lines = recorded.split(a, b'\n');
     var first = (try parse_json(a, (try lines.get(1))));
     var second = (try parse_json(a, (try lines.get(2))));
@@ -455,7 +553,7 @@ public module acceptance {
     replay_text.append("\n");
     replay_text.append(second.to_string(a));
     replay_text.append("\n");
-    std.io.write_string(recording, replay_text);
+    (try std.io.write_string(recording, replay_text));
     args = String("--ui web --interval .1 --port ");
     args.append(port);
     args.append(" --replay ");
@@ -465,21 +563,40 @@ public module acceptance {
     cmd.set_stderr(std.process.Stdio.Null);
     var replay = (try Running(cmd));
     view = (try wait_view(a, base, true));
-    (try check((try (try (try view.get("status")).get("replay")).as_bool()), "replay status missing"));
-    (try check((try view.get("snapshot")).to_string(a).equals(second.to_string(a)), "replay snapshot mismatch"));
+    (try check(
+      (try (try (try view.get("status")).get("replay")).as_bool()),
+      "replay status missing"
+    ));
+    (try check(
+      (try view.get("snapshot")).to_string(a).equals(second.to_string(a)),
+      "replay snapshot mismatch"
+    ));
     (try check((try view.get("history")).len() == 2, "replay history mismatch"));
     var identity_path = String("/api/v1/history?id=");
     identity_path.append(identity);
     var history_text = (try request_path(a, base, identity_path, "GET", "200"));
     var points = (try parse_json(a, history_text));
-    (try check((try (try points.at(0)).get("process")).to_string(a).equals(first_row.to_string(a)), "identity history mismatch"));
-    (try check((try (try points.at(1)).get("process")).is_null(), "exited identity must leave a gap"));
+    (try check(
+      (try (try points.at(0)).get("process")).to_string(a).equals(first_row.to_string(a)),
+      "identity history mismatch"
+    ));
+    (try check(
+      (try (try points.at(1)).get("process")).is_null(),
+      "exited identity must leave a gap"
+    ));
     var snapshot = (try request(a, base, "/api/v1/snapshot", "GET", "200"));
     (try check(snapshot.equals(second.to_string(a)), "snapshot endpoint mismatch"));
-    var live_before = (try parse_json(a, (try request(a, base, "/api/v1/resources", "GET", "200"))));
+    var live_before = (try parse_json(
+      a,
+      (try request(a, base, "/api/v1/resources", "GET", "200"))
+    ));
     sleep(1200);
     var live_after = (try parse_json(a, (try request(a, base, "/api/v1/resources", "GET", "200"))));
-    (try check((try (try live_after.get("timestamp_ms")).as_i64()) > (try (try live_before.get("timestamp_ms")).as_i64()), "replay completion stopped resource publication"));
+    (try check(
+      (try (try live_after.get("timestamp_ms")).as_i64()) >
+        (try (try live_before.get("timestamp_ms")).as_i64()),
+      "replay completion stopped resource publication"
+    ));
     (try replay.stop());
     var direct = String("--monitor network --ui web --samples 1 --port ");
     direct.append(port);
@@ -487,12 +604,16 @@ public module acceptance {
     (try check(direct_result.stdout().is_empty(), "resource web mode printed terminal output"));
     (try terminal(a, binary, directory, false, true));
     (try terminal(a, binary, directory, true, true));
-  
- return MonitorTestResult.Ok;
-}
+
+    return MonitorTestResult.Ok;
+  }
 }
 
 manifest {
-  source_files: ["acceptance-pty.sun"]
-  libraries: ["stdlib.moon"]
+  source_files: [
+    "acceptance-pty.sun"
+  ]
+  libraries: [
+    "stdlib.moon"
+  ]
 }

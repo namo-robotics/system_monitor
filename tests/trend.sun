@@ -30,9 +30,9 @@ public module system_monitor {
     (try graph.select(a, frame, true));
     (try std.test.assert_eq((try graph.series.get(0)).pid, 1i64));
     (try std.test.assert_eq((try graph.series.get(4)).pid, 5i64));
-  
- return MonitorTestResult.Ok;
-}
+
+    return MonitorTestResult.Ok;
+  }
 
   /* Keeps a process's color through ranking changes and assigns distinct slots. */
   test_function trend_colors_follow_identity() MonitorTestResult<void> {
@@ -49,21 +49,24 @@ public module system_monitor {
     (try graph.select(a, frame, true));
     for (var i: i64 = 0; i < graph.series.size(); i = i + 1) {
       for (var j = i + 1; j < graph.series.size(); j = j + 1) {
-        (try std.test.assert((try graph.series.get(i)).color != (try graph.series.get(j)).color, "unique colors"));
+        (try std.test.assert(
+          (try graph.series.get(i)).color != (try graph.series.get(j)).color,
+          "unique colors"
+        ));
       }
     }
-  
- return MonitorTestResult.Ok;
-}
+
+    return MonitorTestResult.Ok;
+  }
 
   /* Places irregular samples according to time, not their array positions. */
   test_function trend_uses_elapsed_time_coordinates() MonitorTestResult<void> {
     (try std.test.assert_eq(time_pixel(100, 0, 1000, 101), 10i64));
     (try std.test.assert_eq(time_pixel(900, 0, 1000, 101), 90i64));
     (try std.test.assert_eq(time_pixel(1000, 1000, 1000, 101), 100i64));
-  
- return MonitorTestResult.Ok;
-}
+
+    return MonitorTestResult.Ok;
+  }
 
   /* Encodes plotted dots without the old magnitude-character alphabet. */
   test_function canvas_encodes_dot_coordinates() MonitorTestResult<void> {
@@ -74,9 +77,9 @@ public module system_monitor {
     var out = String("");
     (try canvas.render_row(out, 0, false));
     (try std.test.assert(out.equals_literal("⢁"), "Braille corner dots"));
-  
- return MonitorTestResult.Ok;
-}
+
+    return MonitorTestResult.Ok;
+  }
 
   /* Breaks traces at unavailable samples instead of joining across gaps. */
   test_function trend_does_not_connect_missing_samples() MonitorTestResult<void> {
@@ -112,9 +115,9 @@ public module system_monitor {
     for (var i: i64 = 0; i < 60; i = i + 1) {
       (try std.test.assert_eq((try empty.masks.get(i)), 0i64));
     }
-  
- return MonitorTestResult.Ok;
-}
+
+    return MonitorTestResult.Ok;
+  }
 
   /* Grows across a fixed span, then scrolls without resetting after eviction. */
   test_function trend_window_grows_then_scrolls() MonitorTestResult<void> {
@@ -127,7 +130,12 @@ public module system_monitor {
     (try history.add(first));
     (try std.test.assert_eq((try graph.begin(history)), 5000i64));
     (try std.test.assert_eq(
-      time_pixel(5000, (try graph.begin(history)), (try graph.begin(history)) + graph.duration, 121),
+      time_pixel(
+        5000,
+        (try graph.begin(history)),
+        (try graph.begin(history)) + graph.duration,
+        121
+      ),
       0i64
     ));
     var middle = Frame(a);
@@ -136,7 +144,12 @@ public module system_monitor {
     (try std.test.assert_eq(history.frames.size(), 1i64));
     (try std.test.assert_eq((try graph.begin(history)), 5000i64));
     (try std.test.assert_eq(
-      time_pixel(35000, (try graph.begin(history)), (try graph.begin(history)) + graph.duration, 121),
+      time_pixel(
+        35000,
+        (try graph.begin(history)),
+        (try graph.begin(history)) + graph.duration,
+        121
+      ),
       60i64
     ));
     var full = Frame(a);
@@ -148,12 +161,17 @@ public module system_monitor {
     (try history.add(later));
     (try std.test.assert_eq((try graph.begin(history)), 15000i64));
     (try std.test.assert_eq(
-      time_pixel(75000, (try graph.begin(history)), (try graph.begin(history)) + graph.duration, 121),
+      time_pixel(
+        75000,
+        (try graph.begin(history)),
+        (try graph.begin(history)) + graph.duration,
+        121
+      ),
       120i64
     ));
-  
- return MonitorTestResult.Ok;
-}
+
+    return MonitorTestResult.Ok;
+  }
 
   /* Leaves future columns blank and excludes peaks outside the visible span. */
   test_function trend_raster_respects_fixed_window() MonitorTestResult<void> {
@@ -179,9 +197,9 @@ public module system_monitor {
     later.elapsed = 90000;
     (try history.add(later));
     (try std.test.assert_eq((try graph.scale(history, false)), 7.0));
-  
- return MonitorTestResult.Ok;
-}
+
+    return MonitorTestResult.Ok;
+  }
 
   /* Fills every dot below a sample and keeps shorter areas in front in either order. */
   test_function filled_columns_overlap_by_height() MonitorTestResult<void> {
@@ -205,9 +223,9 @@ public module system_monitor {
       (try std.test.assert_eq((try canvas.owners.get(1)), 1i64));
       (try std.test.assert_eq((try canvas.owners.get(5)), 0i64));
     }
-  
- return MonitorTestResult.Ok;
-}
+
+    return MonitorTestResult.Ok;
+  }
 
   /* Handles split arrow sequences without treating their bytes as shortcuts. */
   test_function terminal_arrows_move_selection() MonitorTestResult<void> {
@@ -232,7 +250,7 @@ public module system_monitor {
     (try std.test.assert_eq(options.top, 10i64));
     terminal.apply_key(b'j', options);
     (try std.test.assert_eq(terminal.selected_row, 0i64));
-  
- return MonitorTestResult.Ok;
-}
+
+    return MonitorTestResult.Ok;
+  }
 }

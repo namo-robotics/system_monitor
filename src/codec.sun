@@ -1,5 +1,6 @@
 /* Versioned serialization of process samples without command-line secrets. */
 public module system_monitor {
+
   using std;
 
   /* Serializes one process with nulls for unavailable measurements. */
@@ -42,7 +43,7 @@ public module system_monitor {
     (try j.set(String("total_memory"), Json(f.total_memory)));
     (try j.set(String("inaccessible"), Json(f.inaccessible)));
     for (var i: i64 = 0; i < f.processes.size(); i = i + 1) {
-      rows.push((try process_json(a, (try f.processes.get(i)))));
+      (try rows.push((try process_json(a, (try f.processes.get(i))))));
     }
     (try j.set(String("processes"), rows));
     return Result.Ok(j);
@@ -50,8 +51,9 @@ public module system_monitor {
 
   /* Validates and decodes one versioned recording sample. */
   function decode_frame(a: ref HeapAllocator, j: ref Json) Result<Frame> {
-    if (((try (try j.get("version")).as_i64())) != 1 or not ((try (try j.get("type")).as_string())).equals_literal("sample")) {
-      return Result.Error( Error(1, "unsupported recording sample"));
+    if (((try (try j.get("version")).as_i64())) != 1 or
+      not ((try (try j.get("type")).as_string())).equals_literal("sample")) {
+      return Result.Error(Error(1, "unsupported recording sample"));
     }
     var f = Frame(a);
     f.timestamp = ((try (try j.get("timestamp")).as_i64()));
@@ -73,7 +75,7 @@ public module system_monitor {
         p.rss = ((try (try row.get("rss")).as_i64()));
       }
       if (not (try row.get("memory")).is_null()) {
-        p.memory = ((try try (try row.get("memory")).as_f64()));
+        p.memory = ((try (try row.get("memory")).as_f64()));
       }
       f.processes.push(p);
     }

@@ -1,5 +1,6 @@
 /* Owns terminal state and renders resource views independently of collection. */
 public module system_monitor {
+
   using std;
 
   /* Owns interactive display state and restores the terminal when released. */
@@ -20,34 +21,44 @@ public module system_monitor {
     var notice: String = String("");
     var rows: i64 = 24;
     var columns: i64 = 80;
+
     /* Initializes owned state and resources for this object. */
     init(a: const ref HeapAllocator, enabled: bool) Result<void> {
       this.trend = TrendGraph(a);
       this.saved = std.terminal.Termios();
       if (enabled and unsafe { pm_isatty(0); } == 1 and unsafe { pm_isatty(1); } == 1) {
         if (unsafe { pm_tcgetattr(0, this.saved); } != 0) {
-          return Result.Error( Error(1, "cannot read terminal settings"));
+          return Result.Error(Error(1, "cannot read terminal settings"));
         }
         var raw = std.terminal.Termios();
-        unsafe { _memcpy(_bitcast<raw_ptr<u8>>(_address_of<std.terminal.Termios>(raw)), _bitcast<raw_ptr<u8>>(_address_of<std.terminal.Termios>(this.saved)), _sizeof<std.terminal.Termios>()); pm_cfmakeraw(raw); };
+        unsafe {
+          _memcpy(
+            _bitcast<raw_ptr<u8>>(_address_of<std.terminal.Termios>(raw)),
+            _bitcast<raw_ptr<u8>>(_address_of<std.terminal.Termios>(this.saved)),
+            _sizeof<std.terminal.Termios>()
+          );
+          pm_cfmakeraw(raw);
+        };
         if (unsafe { pm_tcsetattr(0, 0, raw); } != 0) {
-          return Result.Error( Error(1, "cannot set terminal mode"));
+          return Result.Error(Error(1, "cannot set terminal mode"));
         }
         this.active = true;
         var escape = String("\x1b[?1049h\x1b[?25l");
-        (try output(escape));
+        output(escape);
       }
-    
- return Result.Ok;
-}
+
+      return Result.Ok;
+    }
+
     /* Releases owned resources and restores external state. */
     deinit() {
       if (this.active) {
         unsafe { pm_tcsetattr(0, 0, this.saved); };
         var escape = String("\x1b[0m\x1b[?25h\x1b[?1049l");
-        (try output(escape));
+        output(escape);
       }
     }
+
     /* Reads available keys and reports whether the display needs refreshing. */
     method key(a: ref HeapAllocator, o: ref Options) Result<bool> {
       if (not this.active) {
@@ -75,7 +86,7 @@ public module system_monitor {
       if (this.paused) {
         var strip = String("\x1b[H\x1b[2K");
         (try this.tabs(a, strip, o.monitor));
-        (try output(strip));
+        output(strip);
       }
       return Result.Ok(true);
     }
@@ -200,9 +211,9 @@ public module system_monitor {
         }
       }
       out.append("\r\n");
-    
- return Result.Ok;
-}
+
+      return Result.Ok;
+    }
 
     /* Executes a requested live-process action and reports the result while paused. */
     method perform_action(a: ref HeapAllocator, o: ref Options) Result<void> {
@@ -224,11 +235,11 @@ public module system_monitor {
       if (this.active and this.paused) {
         var message = String("\x1b[2;1H\x1b[2K");
         message.append((try safe_text(a, this.notice, this.columns - 1)));
-        (try output(message));
+        output(message);
       }
-    
- return Result.Ok;
-}
+
+      return Result.Ok;
+    }
 
     /* Decodes arrow sequences across reads and consumes other escape sequences. */
     method arrow_key(ch: u8, o: ref Options) bool {
@@ -290,11 +301,17 @@ public module system_monitor {
         this.rows = _convert<i64>((try b.get(0)));
         this.columns = _convert<i64>((try b.get(1)));
       }
-    
- return Result.Ok;
-}
+
+      return Result.Ok;
+    }
+
     /* Renders the table and top-process history without changing collected samples. */
-    method draw(a: ref HeapAllocator, frame: ref Frame, history: ref History, o: ref Options) Result<void> {
+    method draw(
+      a: ref HeapAllocator,
+      frame: ref Frame,
+      history: ref History,
+      o: ref Options
+    ) Result<void> {
       if (this.paused) {
         return Result.Ok;
       }
@@ -311,7 +328,7 @@ public module system_monitor {
           width = 1;
         }
         out.append((try safe_text(a, message, width)));
-        (try output(out));
+        output(out);
         return Result.Ok;
       }
       (try this.header(a, out, frame, history));
@@ -320,13 +337,18 @@ public module system_monitor {
       (try this.trend.select(a, frame, o.memory));
       var style = TableStyle(this.columns, this.active);
       (try this.trend.draw(a, out, style, history, o.memory, this.graph_height()));
-      (try output(out));
-    
- return Result.Ok;
-}
+      output(out);
+
+      return Result.Ok;
+    }
 
     /* Writes the resource and retention summary above the table. */
-    method header(a: const ref HeapAllocator, out: ref String, frame: ref Frame, history: ref History) Result<void> {
+    method header(
+      a: const ref HeapAllocator,
+      out: ref String,
+      frame: ref Frame,
+      history: ref History
+    ) Result<void> {
       var style = TableStyle(this.columns, this.active);
       var title = String("PROCESS MONITOR  |  ");
       title.append(frame.processes.size());
@@ -354,12 +376,17 @@ public module system_monitor {
         out.append("CPU: 100% = one core. Memory: resident MiB. N/A = unavailable.\r\n");
         out.append("f/0/a top 5/10/all. Up from first row focuses tabs. Space pauses.\r\n");
       }
-    
- return Result.Ok;
-}
+
+      return Result.Ok;
+    }
 
     /* Keeps the selection attached to its identity as ranks change. */
-    method locate_selection(a: const ref HeapAllocator, frame: ref Frame, order: ref Vec<i64>, count: i64) Result<void> {
+    method locate_selection(
+      a: const ref HeapAllocator,
+      frame: ref Frame,
+      order: ref Vec<i64>,
+      count: i64
+    ) Result<void> {
       if (this.selected_row >= count) {
         this.selected_row = 0;
       }
@@ -374,12 +401,18 @@ public module system_monitor {
           return Result.Ok;
         }
       }
-    
- return Result.Ok;
-}
+
+      return Result.Ok;
+    }
 
     /* Renders the current page of the requested ranking. */
-    method table(a: ref HeapAllocator, out: ref String, frame: ref Frame, history: ref History, o: ref Options) Result<void> {
+    method table(
+      a: ref HeapAllocator,
+      out: ref String,
+      frame: ref Frame,
+      history: ref History,
+      o: ref Options
+    ) Result<void> {
       var order = (try ranking(a, frame, o.memory));
       var count = order.size();
       if (o.top > 0 and count > o.top) {
@@ -409,12 +442,17 @@ public module system_monitor {
         (try this.row(a, out, (try frame.processes.get((try order.get(i))))));
       }
       style.rule(out, 2, true);
-    
- return Result.Ok;
-}
+
+      return Result.Ok;
+    }
 
     /* Labels the columns and marks the resource currently used for ranking. */
-    method headings(a: const ref HeapAllocator, out: ref String, style: ref TableStyle, memory: bool) Result<void> {
+    method headings(
+      a: const ref HeapAllocator,
+      out: ref String,
+      style: ref TableStyle,
+      memory: bool
+    ) Result<void> {
       style.edge(out, "│", "|");
       var names = String("PID|NAME|CPU %|MEM %|RSS MiB");
       if (memory) {
@@ -425,12 +463,12 @@ public module system_monitor {
       var headers = names.split(a, b'|');
       for (var col: i64 = 0; col < 5; col = col + 1) {
         style.color(out, "\x1b[1;36m");
-        (try style.cell(a, out, (try headers.get(col)), (try style.column(col)), col != 1, false));
+        (try style.cell(a, out, (try headers.get(col)), (style.column(col)), col != 1, false));
       }
       out.append("\r\n");
-    
- return Result.Ok;
-}
+
+      return Result.Ok;
+    }
 
     /* Formats aligned resource columns and highlights the selected identity. */
     method row(a: const ref HeapAllocator, out: ref String, p: ref Process) Result<void> {
@@ -456,12 +494,12 @@ public module system_monitor {
       cells.push(decimal(rss));
       style.edge(out, "│", "|");
       for (var col: i64 = 0; col < 5; col = col + 1) {
-        (try style.cell(a, out, (try cells.get(col)), (try style.column(col)), col != 1, selected));
+        (try style.cell(a, out, (try cells.get(col)), (style.column(col)), col != 1, selected));
       }
       out.append("\r\n");
-    
- return Result.Ok;
-}
+
+      return Result.Ok;
+    }
 
     /* Shares vertical space between the process table and the top-process graph. */
     method graph_height() i64 {
