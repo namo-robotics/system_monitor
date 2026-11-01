@@ -42,13 +42,13 @@ public module system_monitor {
     test_function truncated_stat_is_rejected() MonitorTestResult<void> {
       var a = make_heap_allocator();
       var bad = String("42 (short) S 0");
-      var rejected = false;
-      match parse_stat(a, bad, 4096) {
+      var rejected = match parse_stat(a, bad, 4096) {
         Result.Ok(value) => {
           var p = value;
+          false;
         },
         (e: const ref IError) => {
-          rejected = true;
+          true;
         }
       };
       try std.test.assert(rejected, "truncated record");
