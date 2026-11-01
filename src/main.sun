@@ -1,7 +1,7 @@
-/* Command entry point for the Sun process monitor. */
+/** Command entry point for the Sun process monitor. */
 using std;
 
-/* Starts the monitor and reports user-facing failures. */
+/** Starts the monitor and reports user-facing failures. */
 function main(argc: i32, argv: raw_ptr<raw_ptr<u8>>) i32 {
   return system_monitor.entry(argc, argv);
 }

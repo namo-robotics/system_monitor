@@ -1,32 +1,34 @@
-/* Resolves explicit labels once and keeps them bound to process identities. */
+/** Resolves explicit labels once and keeps them bound to process identities. */
 public module system_monitor {
 
   using std;
 
-  /* Applies explicit names only to identities observed in the first sample. */
+  /** Applies explicit names only to identities observed in the first sample. */
   class Labels {
     var bound: bool = false;
     var document: Json = Json();
     var identities: Map<i64, i64>;
 
-    /* Initializes owned state and resources for this object. */
+    /** Initializes owned state and resources for this object. */
     init(a: const ref HeapAllocator) {
       this.identities = Map<i64, i64>(a, 16);
     }
 
-    /* Applies configured labels without carrying them across PID reuse. */
+    /** Applies configured labels without carrying them across PID reuse. */
     method apply(a: ref HeapAllocator, f: ref Frame) Result<void> {
       if (not this.document.is_object()) {
         return Result.Ok;
       }
       for (var i: i64 = 0; i < f.processes.size(); i = i + 1) {
-        var p: ref Process = (try f.processes.get(i));
+        var p: ref Process = try f.processes.get(i);
         var key = String("");
         key.append(p.pid);
         for (var k: i64 = 0; k < this.document.len(); k = k + 1) {
           var matches = match this.document.key_at(k) {
             JsonResult.Ok(name) => name.equals(key),
-            JsonResult.Error(error) => { return Result.Json(error); }
+            JsonResult.Error(error) => {
+              return Result.Json(error);
+            }
           };
           if (matches) {
             if (not this.bound and not this.identities.contains(p.pid)) {
@@ -37,7 +39,7 @@ public module system_monitor {
               same_identity = (try this.identities.get(p.pid)) == p.start;
             }
             if (same_identity) {
-              p.label = ((try (try this.document.value_at(k)).as_string())).clone(a);
+              p.label = try (try this.document.value_at(k)).as_string().clone(a);
             }
             break;
           }
@@ -49,7 +51,7 @@ public module system_monitor {
     }
   }
 
-  /* Derives a process label from its executable and ROS remapping arguments. */
+  /** Derives a process label from its executable and ROS remapping arguments. */
   function label_process(alloc: const ref HeapAllocator, p: ref Process) Result<void> {
     var parts = p.exe.split(alloc, "/");
     p.label = (try parts.get(parts.size() - 1)).clone(alloc);
@@ -61,7 +63,7 @@ public module system_monitor {
     var ns = String("");
     var ros = false;
     for (var i: i64 = 0; i < args.size(); i = i + 1) {
-      var arg: ref String = (try args.get(i));
+      var arg: ref String = try args.get(i);
       if (arg.equals_literal("--ros-args")) {
         ros = true;
         continue;
@@ -73,13 +75,13 @@ public module system_monitor {
         continue;
       }
       if (arg.starts_with("__node:=")) {
-        node = (try arg.substr(alloc, 8, arg.length() - 8));
+        node = try arg.substr(alloc, 8, arg.length() - 8);
       }
       if (arg.starts_with("__name:=")) {
-        node = (try arg.substr(alloc, 8, arg.length() - 8));
+        node = try arg.substr(alloc, 8, arg.length() - 8);
       }
       if (arg.starts_with("__ns:=")) {
-        ns = (try arg.substr(alloc, 6, arg.length() - 6));
+        ns = try arg.substr(alloc, 6, arg.length() - 6);
       }
     }
     if (not node.is_empty()) {

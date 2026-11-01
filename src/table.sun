@@ -1,20 +1,20 @@
-/* Bounded terminal tables and panels with presentation kept separate from data. */
+/** Bounded terminal tables and panels with presentation kept separate from data. */
 public module system_monitor {
 
   using std;
 
-  /* Formats fixed-width cells and colored borders for one terminal frame. */
+  /** Formats fixed-width cells and colored borders for one terminal frame. */
   class TableStyle {
     var width: i64;
     var colored: bool;
 
-    /* Leaves a spare terminal column to avoid automatic line wrapping. */
+    /** Leaves a spare terminal column to avoid automatic line wrapping. */
     init(columns: i64, colored: bool) {
       this.width = columns - 1;
       this.colored = colored;
     }
 
-    /* Returns content widths shared by table rules, headers, and rows. */
+    /** Returns content widths shared by table rules, headers, and rows. */
     method column(index: i64) i64 {
       if (index == 0) {
         return 9;
@@ -34,14 +34,14 @@ public module system_monitor {
       return 8;
     }
 
-    /* Sets an ANSI style only for interactive output. */
+    /** Sets an ANSI style only for interactive output. */
     method color(out: ref String, code: static_ptr<u8>) void {
       if (this.colored) {
         out.append(code);
       }
     }
 
-    /* Writes a Unicode border in terminals and an ASCII equivalent in pipes. */
+    /** Writes a Unicode border in terminals and an ASCII equivalent in pipes. */
     method edge(out: ref String, glyph: static_ptr<u8>, ascii: static_ptr<u8>) void {
       this.color(out, "\x1b[0;36m");
       if (this.colored) {
@@ -52,7 +52,7 @@ public module system_monitor {
       this.color(out, "\x1b[0m");
     }
 
-    /* Draws a top, middle, or bottom rule with optional column junctions. */
+    /** Draws a top, middle, or bottom rule with optional column junctions. */
     method rule(out: ref String, position: i64, divided: bool) void {
       if (position == 0) {
         this.edge(out, "╭", "+");
@@ -99,7 +99,7 @@ public module system_monitor {
       out.append("\r\n");
     }
 
-    /* Clips and pads text before applying color, keeping ANSI bytes out of widths. */
+    /** Clips and pads text before applying color, keeping ANSI bytes out of widths. */
     method cell(
       a: const ref HeapAllocator,
       out: ref String,
@@ -108,9 +108,9 @@ public module system_monitor {
       right: bool,
       selected: bool
     ) Result<void> {
-      var clean = (try safe_text(a, text, width));
+      var clean = try safe_text(a, text, width);
       if (text.length() > width and width > 0) {
-        (try clean.set_at(width - 1, b'~'));
+        try clean.set_at(width - 1, b'~');
       }
       if (selected) {
         this.color(out, "\x1b[1;97;44m");
@@ -134,7 +134,7 @@ public module system_monitor {
       return Result.Ok;
     }
 
-    /* Writes one bounded line inside a full-width history panel. */
+    /** Writes one bounded line inside a full-width history panel. */
     method panel_line(
       a: const ref HeapAllocator,
       out: ref String,
@@ -145,7 +145,7 @@ public module system_monitor {
       if (accent) {
         this.color(out, "\x1b[1;32m");
       }
-      (try this.cell(a, out, text, this.width - 4, false, false));
+      try this.cell(a, out, text, this.width - 4, false, false);
       out.append("\r\n");
 
       return Result.Ok;

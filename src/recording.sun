@@ -1,21 +1,21 @@
-/* Versioned JSON Lines recording and bounded streaming replay. */
+/** Versioned JSON Lines recording and bounded streaming replay. */
 public module system_monitor {
 
   using std;
 
-  /* Describes the recording version, cadence, and measurement units. */
+  /** Describes the recording version, cadence, and measurement units. */
   function metadata(a: ref HeapAllocator, o: ref Options) Result<String> {
     var j = create_json_object(a);
-    (try j.set(String("version"), Json(1i64)));
-    (try j.set(String("type"), Json(String("session"))));
-    (try j.set(String("interval_ms"), Json(o.interval)));
-    (try j.set(String("cpu_unit"), Json(String("percent_one_core"))));
-    (try j.set(String("memory_unit"), Json(String("bytes_rss"))));
-    (try j.set(String("timestamp_unit"), Json(String("unix_ms"))));
+    try j.set(String("version"), Json(1i64));
+    try j.set(String("type"), Json(String("session")));
+    try j.set(String("interval_ms"), Json(o.interval));
+    try j.set(String("cpu_unit"), Json(String("percent_one_core")));
+    try j.set(String("memory_unit"), Json(String("bytes_rss")));
+    try j.set(String("timestamp_unit"), Json(String("unix_ms")));
     return Result.Ok(j.to_string(a));
   }
 
-  /* Writes one complete JSON line and reports storage failures. */
+  /** Writes one complete JSON line and reports storage failures. */
   function write_record(file: ref std.io.File, text: ref String) Result<void> {
     var line = String("");
     line.append(text);
@@ -27,20 +27,20 @@ public module system_monitor {
     return Result.Ok;
   }
 
-  /* Reads a recording incrementally with bounded line buffering. */
+  /** Reads a recording incrementally with bounded line buffering. */
   class Replay {
     var file: std.io.File = std.io.File();
     var pending: String = String("");
     var eof: bool = false;
     var last_elapsed: i64 = -1;
 
-    /* Reads the next complete line, ignoring an interrupted final fragment. */
+    /** Reads the next complete line, ignoring an interrupted final fragment. */
     method line(a: ref HeapAllocator) Result<String> {
       while (true) {
         match this.pending.find_char(10u8) {
           Option.Some(n) => {
-            var line = (try this.pending.substr(a, 0, n));
-            this.pending = (try this.pending.substr(a, n + 1, this.pending.length() - n - 1));
+            var line = try this.pending.substr(a, 0, n);
+            this.pending = try this.pending.substr(a, n + 1, this.pending.length() - n - 1);
             return Result.Ok(line);
           },
           Option.None => {}
@@ -58,7 +58,7 @@ public module system_monitor {
           this.eof = true;
           continue;
         }
-        var text = (try String(a, buffer, n));
+        var text = try String(a, buffer, n);
         this.pending.append(text);
         if (this.pending.length() > 67108864) {
           return Result.Error(Error(1, "recording line exceeds limit"));

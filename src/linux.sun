@@ -1,20 +1,20 @@
-/* Linux process collection reads procfs without elevated privileges. */
+/** Linux process collection reads procfs without elevated privileges. */
 public module system_monitor {
 
   using std;
 
-  /* Reads a POSIX system configuration value. */
+  /** Reads a POSIX system configuration value. */
   extern "C" function pm_sysconf(name: i32) i64 as "sysconf";
 
-  /* Reads a symbolic link into a caller-owned buffer. */
+  /** Reads a symbolic link into a caller-owned buffer. */
   extern "C" function pm_readlink(path: raw_ptr<u8>, out: raw_ptr<u8>, size: i64) i64 as "readlink";
 
-  /* Returns the operating system CPU counter frequency. */
-  function clock_ticks() i64 {
-    return unsafe { pm_sysconf(2); };
+  /** Returns the operating system CPU counter frequency. */
+  function clock_ticks() Result<i64> {
+    return Result.Ok(unsafe { pm_sysconf(2); });
   }
 
-  /* Parses procfs fields without treating spaces in process names as separators. */
+  /** Parses procfs fields without treating spaces in process names as separators. */
   function parse_stat(
     a: const ref HeapAllocator,
     stat: const ref String,
@@ -37,36 +37,36 @@ public module system_monitor {
     if (begin < 1 or end <= begin) {
       return Result.Error(Error(1, "malformed process stat"));
     }
-    var pid = (try stat.substr(a, 0, begin));
+    var pid = try stat.substr(a, 0, begin);
     pid.trim();
-    var rest = (try stat.substr(a, end + 1, stat.length() - end - 1));
+    var rest = try stat.substr(a, end + 1, stat.length() - end - 1);
     var fields = rest.split_whitespace(a);
     if (fields.size() < 22) {
       return Result.Error(Error(1, "short process stat"));
     }
     var p = Process();
-    p.pid = (try number(pid));
-    p.exe = (try stat.substr(a, begin + 1, end - begin - 1));
-    p.start = (try number((try fields.get(19))));
-    p.ticks = (try number((try fields.get(11)))) + (try number((try fields.get(12))));
-    p.rss = (try number((try fields.get(21)))) * page;
+    p.pid = try number(pid);
+    p.exe = try stat.substr(a, begin + 1, end - begin - 1);
+    p.start = try numbertry fields.get(19);
+    p.ticks = (try numbertry fields.get(11)) + (try numbertry fields.get(12));
+    p.rss = (try numbertry fields.get(21)) * page;
     return Result.Ok(p);
   }
 
-  /* Reads the host's physical memory total from procfs. */
+  /** Reads the host's physical memory total from procfs. */
   function physical_memory(a: ref HeapAllocator) Result<i64> {
-    var mem = (try std.io.read_to_string(a, "/proc/meminfo"));
+    var mem = try std.io.read_to_string(a, "/proc/meminfo");
     var lines = mem.split(a, 10u8);
     for (var i: i64 = 0; i < lines.size(); i = i + 1) {
-      if ((try lines.get(i)).starts_with("MemTotal:")) {
-        var parts = (try lines.get(i)).split_whitespace(a);
-        return Result.Ok((try number((try parts.get(1)))) * 1024);
+      if ((try vector_read(lines, i)).starts_with("MemTotal:")) {
+        var parts = (try vector_read(lines, i)).split_whitespace(a);
+        return Result.Ok((try numbertry parts.get(1)) * 1024);
       }
     }
     return Result.Error(Error(1, "physical memory total unavailable"));
   }
 
-  /* Reads optional arguments and executable metadata without dropping a sample. */
+  /** Reads optional arguments and executable metadata without dropping a sample. */
   function linux_metadata(a: ref HeapAllocator, base: const ref String, p: ref Process) void {
     var cmd = base.clone(a);
     cmd.append("/cmdline");
@@ -85,40 +85,40 @@ public module system_monitor {
     }
   }
 
-  /* Reads a process and verifies that its identity survived metadata collection. */
+  /** Reads a process and verifies that its identity survived metadata collection. */
   function linux_process(a: ref HeapAllocator, name: const ref String, page: i64) Result<Process> {
     var base = String("/proc/");
     base.append(name);
     var path = base.clone(a);
     path.append("/stat");
-    var stat = (try std.io.read_to_string(a, path));
-    var p = (try parse_stat(a, stat, page));
+    var stat = try std.io.read_to_string(a, path);
+    var p = try parse_stat(a, stat, page);
     linux_metadata(a, base, p);
-    var confirm = (try std.io.read_to_string(a, path));
-    var check = (try parse_stat(a, confirm, page));
+    var confirm = try std.io.read_to_string(a, path);
+    var check = try parse_stat(a, confirm, page);
     if (check.start != p.start) {
       return Result.Error(Error(1, "process changed during collection"));
     }
-    (try label_process(a, p));
+    try label_process(a, p);
     return Result.Ok(p);
   }
 
-  /* Calls Linux directly for operations without musl libc wrappers. */
+  /** Calls Linux directly for operations without musl libc wrappers. */
   extern "C" function pm_syscall(number: i64, ...) i64 as "syscall";
 
-  /* Opens a stable process handle on Linux x86_64 and ARM64. */
+  /** Opens a stable process handle on Linux x86_64 and ARM64. */
   function pm_pidfd_open(pid: i32, flags: u32) i32 {
     return _convert<i32>(unsafe { pm_syscall(434i64, _convert<i64>(pid), _convert<u64>(flags)); });
   }
 
-  /* Sends a signal through a stable handle on Linux x86_64 and ARM64. */
+  /** Sends a signal through a stable handle on Linux x86_64 and ARM64. */
   function pm_pidfd_signal(fd: i32, signal: i32) i32 {
     return _convert<i32>(
       unsafe { pm_syscall(424i64, _convert<i64>(fd), _convert<i64>(signal), 0i64, 0i64); }
     );
   }
 
-  /* Releases a process handle after use. */
+  /** Releases a process handle after use. */
   extern "C" function pm_close(fd: i32) i32 as "close";
 
   /** Checks a pinned process identity before signalling it. */
@@ -132,8 +132,8 @@ public module system_monitor {
     var path = String("/proc/");
     path.append(pid);
     path.append("/stat");
-    var stat = (try std.io.read_to_string(a, path));
-    var process = (try parse_stat(a, stat, 1));
+    var stat = try std.io.read_to_string(a, path);
+    var process = try parse_stat(a, stat, 1);
     if (process.start != start) {
       return Result.Error(Error(1, "process identity changed"));
     }
@@ -144,7 +144,7 @@ public module system_monitor {
     return Result.Ok;
   }
 
-  /* Pins the process, verifies its start time, and sends the requested signal. */
+  /** Pins the process, verifies its start time, and sends the requested signal. */
   function signal_process(a: ref HeapAllocator, pid: i32, start: i64, signal: i32) Result<void> {
     var fd = unsafe { pm_pidfd_open(pid, 0); };
     if (fd < 0) {
@@ -157,17 +157,17 @@ public module system_monitor {
     return Result.Ok;
   }
 
-  /* Samples visible processes and counts entries that disappear or cannot be read. */
+  /** Samples visible processes and counts entries that disappear or cannot be read. */
   function collect(a: ref HeapAllocator, elapsed: i64) Result<Frame> {
     var f = Frame(a);
     f.timestamp = std.time.read_unix_time_millis();
     f.elapsed = elapsed;
-    f.total_memory = (try physical_memory(a));
+    f.total_memory = try physical_memory(a);
     var page = unsafe { pm_sysconf(30); };
     if (page <= 0) {
       return Result.Error(Error(1, "system page size unavailable"));
     }
-    var entries = (try std.io.read_dir(a, "/proc"));
+    var entries = try std.io.read_dir(a, "/proc");
     for (var i: i64 = 0; i < entries.size(); i = i + 1) {
       var name: ref String = (try entries.get(i)).name();
       if (name.is_empty() or (try name.at(0)) < b'0' or (try name.at(0)) > b'9') {

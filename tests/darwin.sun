@@ -1,25 +1,25 @@
-/* Native macOS acceptance checks for the platform ABI and collector. */
+/** Native macOS acceptance checks for the platform ABI and collector. */
 public module system_monitor {
 
   using std;
 
-  /* Groups tests that require native libproc and Mach clocks. */
+  /** Groups tests that require native libproc and Mach clocks. */
   module darwin_tests {
 
-    /* Checks the SDK-compatible process identity layout and clock frequency. */
+    /** Checks the SDK-compatible process identity layout and clock frequency. */
     test_function identity_layout_and_clock_are_valid() MonitorTestResult<void> {
-      (try std.test.assert_eq(_sizeof<BsdInfo>(), 136i64));
-      (try std.test.assert((try clock_ticks()) > 0, "native CPU frequency"));
+      try std.test.assert_eq(_sizeof<BsdInfo>(), 136i64);
+      try std.test.assert((try clock_ticks()) > 0, "native CPU frequency");
 
       return MonitorTestResult.Ok;
     }
 
-    /* Verifies the native collector can read visible processes and physical memory. */
+    /** Verifies the native collector can read visible processes and physical memory. */
     test_function native_collection_returns_samples() MonitorTestResult<void> {
       var a = make_heap_allocator();
-      var f = (try collect(a, 0));
-      (try std.test.assert(f.total_memory > 0, "physical memory"));
-      (try std.test.assert(f.processes.size() > 0, "visible processes"));
+      var f = try collect(a, 0);
+      try std.test.assert(f.total_memory > 0, "physical memory");
+      try std.test.assert(f.processes.size() > 0, "visible processes");
 
       return MonitorTestResult.Ok;
     }

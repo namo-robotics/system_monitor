@@ -1,16 +1,16 @@
-/* Keeps terminal builds available where the released server is unsupported. */
+/** Keeps terminal builds available where the released server is unsupported. */
 public module system_monitor {
 
   using std;
 
-  /* Reports that no server library is published for this target. */
+  /** Reports that no server library is published for this target. */
   function web_supported() bool {
     return false;
   }
 
-  /* Reports unsupported web mode before sampling or terminal setup. */
+  /** Reports unsupported web mode before sampling or terminal setup. */
   class Web {
-    /* Validates the requested UI against this build's capabilities. */
+    /** Validates the requested UI against this build's capabilities. */
     init(a: ref HeapAllocator, options: ref Options) Result<void> {
       if (not options.ui.equals_literal("terminal")) {
         return Result.Error(Error(1, "web hosting requires the Linux x86_64 sun_serve library"));
@@ -19,13 +19,17 @@ public module system_monitor {
       return Result.Ok;
     }
 
-    /* Leaves terminal-only samples untouched. */
-    method publish(a: ref HeapAllocator, session: ref Session) void {}
+    /** Leaves terminal-only samples untouched. */
+    method publish(a: ref HeapAllocator, session: ref Session) Result<void> {
+      return Result.Ok;
+    }
 
-    /* Leaves resource collection to the terminal on unsupported web targets. */
-    method publish_resources(a: ref HeapAllocator, now: i64) void {}
+    /** Leaves resource collection to the terminal on unsupported web targets. */
+    method publish_resources(a: ref HeapAllocator, now: i64) Result<void> {
+      return Result.Ok;
+    }
 
-    /* Matches the server shutdown interface. */
+    /** Matches the server shutdown interface. */
     method close() void {}
   }
 }

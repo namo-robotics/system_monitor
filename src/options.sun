@@ -1,9 +1,9 @@
-/* Parses and validates configuration before any monitoring side effects. */
+/** Parses and validates configuration before any monitoring side effects. */
 public module system_monitor {
 
   using std;
 
-  /* Holds the supported terminal, history, and recording settings. */
+  /** Holds the supported terminal, history, and recording settings. */
   class Options {
     var monitor: String = String("process");
     var ui: String = String("terminal");
@@ -21,7 +21,7 @@ public module system_monitor {
     var help: bool = false;
     var version: bool = false;
 
-    /* Applies one validated option without accessing external resources. */
+    /** Applies one validated option without accessing external resources. */
     method set(a: const ref HeapAllocator, key: const ref String, value: ref String) Result<void> {
       if (key.equals_literal("--monitor")) {
         if (not valid_monitor(value)) {
@@ -37,21 +37,21 @@ public module system_monitor {
         }
         this.ui = value.clone(a);
       } else if (key.equals_literal("--port")) {
-        this.port = (try bounded_integer(value, 1, 65535));
+        this.port = try bounded_integer(value, 1, 65535);
       } else if (key.equals_literal("--top")) {
-        this.top = (try parse_top(value));
+        this.top = try parse_top(value);
       } else if (key.equals_literal("--sort")) {
-        this.memory = (try parse_sort(value));
+        this.memory = try parse_sort(value);
       } else if (key.equals_literal("--interval")) {
-        this.interval = (try parse_duration(value));
+        this.interval = try parse_duration(value);
       } else if (key.equals_literal("--graph-window")) {
-        this.graph_window = (try parse_duration(value));
+        this.graph_window = try parse_duration(value);
       } else if (key.equals_literal("--history")) {
-        this.history = (try parse_duration(value));
+        this.history = try parse_duration(value);
       } else if (key.equals_literal("--memory-limit")) {
         this.budget = (try bounded_integer(value, 1, 4096)) * 1048576;
       } else if (key.equals_literal("--samples")) {
-        this.samples = (try bounded_integer(value, 1, 2147483647));
+        this.samples = try bounded_integer(value, 1, 2147483647);
       } else if (key.equals_literal("--record")) {
         this.record = value.clone(a);
       } else if (key.equals_literal("--replay")) {
@@ -65,7 +65,7 @@ public module system_monitor {
       return Result.Ok;
     }
 
-    /* Rejects conflicting input and output modes. */
+    /** Rejects conflicting input and output modes. */
     method validate() Result<void> {
       if (not this.ui.equals_literal("terminal") and not web_supported()) {
         return Result.Error(Error(1, "web hosting requires the Linux x86_64 sun_serve library"));
@@ -83,16 +83,16 @@ public module system_monitor {
     }
   }
 
-  /* Parses an integer within a caller-supplied inclusive range. */
+  /** Parses an integer within a caller-supplied inclusive range. */
   function bounded_integer(value: const ref String, low: i64, high: i64) Result<i64> {
-    var n = (try number(value));
+    var n = try number(value);
     if (n < low or n > high) {
       return Result.Error(Error(1, "numeric option is outside its allowed range; see --help"));
     }
     return Result.Ok(n);
   }
 
-  /* Converts a validated duration in seconds to milliseconds. */
+  /** Converts a validated duration in seconds to milliseconds. */
   function parse_duration(value: ref String) Result<i64> {
     var seconds: f64 = 0.0;
     match value.parse_f64() {
@@ -109,15 +109,15 @@ public module system_monitor {
     return Result.Ok(_convert<i64>(seconds * 1000.0));
   }
 
-  /* Parses a display limit, using zero internally for all processes. */
+  /** Parses a display limit, using zero internally for all processes. */
   function parse_top(value: const ref String) Result<i64> {
     if (value.equals_literal("all")) {
       return Result.Ok(0);
     }
-    return Result.Ok((try bounded_integer(value, 1, 2147483647)));
+    return Result.Oktry bounded_integer(value, 1, 2147483647);
   }
 
-  /* Chooses the resource used for descending process ranking. */
+  /** Chooses the resource used for descending process ranking. */
   function parse_sort(value: const ref String) Result<bool> {
     if (value.equals_literal("memory")) {
       return Result.Ok(true);
@@ -128,7 +128,7 @@ public module system_monitor {
     return Result.Error(Error(1, "sort must be cpu or memory"));
   }
 
-  /* Parses the argument vector without changing files or terminal settings. */
+  /** Parses the argument vector without changing files or terminal settings. */
   function options(
     a: const ref HeapAllocator,
     argc: i32,
@@ -153,7 +153,7 @@ public module system_monitor {
       if (value.is_empty()) {
         return Result.Error(Error(1, "option values must not be empty"));
       }
-      (try o.set(a, key, value));
+      try o.set(a, key, value);
     }
     // Preserve the old menu option as an alias for the default tab.
     if (o.monitor.equals_literal("menu")) {
@@ -164,7 +164,7 @@ public module system_monitor {
         return Result.Error(Error(1, "recording, replay, and labels require --monitor process"));
       }
     }
-    (try o.validate());
+    try o.validate();
     return Result.Ok(o);
   }
 }

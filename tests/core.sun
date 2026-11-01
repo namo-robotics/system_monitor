@@ -1,4 +1,4 @@
-/* Behavioral tests for metrics, identities, history, labels, and recordings. */
+/** Behavioral tests for metrics, identities, history, labels, and recordings. */
 public module system_monitor {
 
   using std;
@@ -23,20 +23,20 @@ public module system_monitor {
     Assertion(std.test.AssertionError)
   }
 
-  /* Groups related behavioral tests. */
+  /** Groups related behavioral tests. */
   module core_tests {
 
-    /* Checks that cpu units and missing data. */
+    /** Checks that cpu units and missing data. */
     test_function cpu_units_and_missing_data() MonitorTestResult<void> {
-      (try std.test.assert(cpu_percent(100, 300, 1000, 100) == 200.0, "multicore CPU"));
-      (try std.test.assert(cpu_percent(100, 99, 1000, 100) < 0.0, "reset is unknown"));
-      (try std.test.assert(cpu_percent(100, 100, 1000, 100) == 0.0, "idle is zero"));
-      (try std.test.assert(cpu_percent(0, 1, 0, 100) < 0.0, "zero time is unknown"));
+      try std.test.assert(cpu_percent(100, 300, 1000, 100) == 200.0, "multicore CPU");
+      try std.test.assert(cpu_percent(100, 99, 1000, 100) < 0.0, "reset is unknown");
+      try std.test.assert(cpu_percent(100, 100, 1000, 100) == 0.0, "idle is zero");
+      try std.test.assert(cpu_percent(0, 1, 0, 100) < 0.0, "zero time is unknown");
 
       return MonitorTestResult.Ok;
     }
 
-    /* Checks that pid reuse does not inherit cpu. */
+    /** Checks that pid reuse does not inherit cpu. */
     test_function pid_reuse_does_not_inherit_cpu() MonitorTestResult<void> {
       var a = make_heap_allocator();
       var old = Frame(a);
@@ -52,36 +52,36 @@ public module system_monitor {
       q.ticks = 200;
       now.processes.push(q);
       now.elapsed = 1000;
-      (try calculate(now, old, 100));
-      (try std.test.assert((try now.processes.get(0)).cpu < 0.0, "new identity has no baseline"));
+      try calculate(now, old, 100);
+      try std.test.assert((try now.processes.get(0)).cpu < 0.0, "new identity has no baseline");
 
       return MonitorTestResult.Ok;
     }
 
-    /* Checks that history evicts old frames. */
+    /** Checks that history evicts old frames. */
     test_function history_evicts_old_frames() MonitorTestResult<void> {
       var a = make_heap_allocator();
       var h = History(a);
       h.duration = 1000;
       var f = Frame(a);
       f.elapsed = 0;
-      (try h.add(f));
+      try h.add(f);
       var g = Frame(a);
       g.elapsed = 2000;
-      (try h.add(g));
-      (try std.test.assert_eq(h.frames.size(), 1i64));
-      (try std.test.assert(h.evicted, "eviction reported"));
+      try h.add(g);
+      try std.test.assert_eq(h.frames.size(), 1i64);
+      try std.test.assert(h.evicted, "eviction reported");
       h.limit = 1;
       var huge = Frame(a);
       huge.elapsed = 3000;
-      (try h.add(huge));
-      (try std.test.assert_eq(h.frames.size(), 0i64));
-      (try std.test.assert_eq(h.bytes, 0i64));
+      try h.add(huge);
+      try std.test.assert_eq(h.frames.size(), 0i64);
+      try std.test.assert_eq(h.bytes, 0i64);
 
       return MonitorTestResult.Ok;
     }
 
-    /* Checks that ros labels and roundtrip. */
+    /** Checks that ros labels and roundtrip. */
     test_function ros_labels_and_roundtrip() MonitorTestResult<void> {
       var a = make_heap_allocator();
       var p = Process();
@@ -89,22 +89,22 @@ public module system_monitor {
       p.start = 123;
       p.exe = String("/opt/ros/component_container");
       p.args = String("node\0--ros-args\0-r\0__node:=camera\0-r\0__ns:=/robot\0");
-      (try label_process(a, p));
-      (try std.test.assert(
+      try label_process(a, p);
+      try std.test.assert(
         p.label.equals_literal("/robot/camera [shared container]"),
         "ROS label"
-      ));
+      );
       var f = Frame(a);
       f.processes.push(p);
-      var j = (try frame_json(a, f));
-      var copy = (try decode_frame(a, j));
-      (try std.test.assert_eq((try copy.processes.get(0)).start, 123i64));
-      (try std.test.assert((try copy.processes.get(0)).cpu < 0.0, "unknown preserved"));
+      var j = try frame_json(a, f);
+      var copy = try decode_frame(a, j);
+      try std.test.assert_eq((try copy.processes.get(0)).start, 123i64);
+      try std.test.assert((try copy.processes.get(0)).cpu < 0.0, "unknown preserved");
 
       return MonitorTestResult.Ok;
     }
 
-    /* Checks that ranking keeps all samples and breaks ties. */
+    /** Checks that ranking keeps all samples and breaks ties. */
     test_function ranking_keeps_all_samples_and_breaks_ties() MonitorTestResult<void> {
       var a = make_heap_allocator();
       var f = Frame(a);
@@ -116,32 +116,32 @@ public module system_monitor {
       q.pid = 1;
       q.cpu = 10.0;
       f.processes.push(q);
-      var order = (try ranking(a, f, false));
-      (try std.test.assert_eq((try order.get(0)), 1i64));
-      (try std.test.assert_eq(f.processes.size(), 2i64));
+      var order = try ranking(a, f, false);
+      try std.test.assert_eq(try order.get(0), 1i64);
+      try std.test.assert_eq(f.processes.size(), 2i64);
 
       return MonitorTestResult.Ok;
     }
   }
 
-  /* Groups related behavioral tests. */
+  /** Groups related behavioral tests. */
   module additional_tests {
 
-    /* Verifies explicit labels do not leak across PID reuse or appear late. */
+    /** Verifies explicit labels do not leak across PID reuse or appear late. */
     test_function labels_bind_only_to_initial_identities() MonitorTestResult<void> {
       var a = make_heap_allocator();
       var labels = Labels(a);
-      labels.document = (try parse_json(a, "{\"7\":\"camera\",\"8\":\"late\"}"));
+      labels.document = try parse_json(a, "{\"7\":\"camera\",\"8\":\"late\"}");
       var f = Frame(a);
       var p = Process();
       p.pid = 7;
       p.start = 1;
       f.processes.push(p);
-      (try labels.apply(a, f));
-      (try std.test.assert(
+      try labels.apply(a, f);
+      try std.test.assert(
         (try f.processes.get(0)).label.equals_literal("camera"),
         "initial label"
-      ));
+      );
       var next = Frame(a);
       var q = Process();
       q.pid = 7;
@@ -153,20 +153,20 @@ public module system_monitor {
       late.start = 3;
       late.label = String("unbound");
       next.processes.push(late);
-      (try labels.apply(a, next));
-      (try std.test.assert(
+      try labels.apply(a, next);
+      try std.test.assert(
         (try next.processes.get(0)).label.equals_literal("original"),
         "reused PID"
-      ));
-      (try std.test.assert(
+      );
+      try std.test.assert(
         (try next.processes.get(1)).label.equals_literal("unbound"),
         "late PID"
-      ));
+      );
 
       return MonitorTestResult.Ok;
     }
 
-    /* Verifies resident memory percentages and normal CPU deltas. */
+    /** Verifies resident memory percentages and normal CPU deltas. */
     test_function metrics_use_elapsed_time_and_physical_memory() MonitorTestResult<void> {
       var a = make_heap_allocator();
       var old = Frame(a);
@@ -184,14 +184,14 @@ public module system_monitor {
       next.processes.push(q);
       next.elapsed = 500;
       next.total_memory = 1024;
-      (try calculate(next, old, 100));
-      (try std.test.assert((try next.processes.get(0)).cpu == 100.0, "one core"));
-      (try std.test.assert((try next.processes.get(0)).memory == 25.0, "RSS percentage"));
+      try calculate(next, old, 100);
+      try std.test.assert((try next.processes.get(0)).cpu == 100.0, "one core");
+      try std.test.assert((try next.processes.get(0)).memory == 25.0, "RSS percentage");
 
       return MonitorTestResult.Ok;
     }
 
-    /* Keeps exited samples until their history expires. */
+    /** Keeps exited samples until their history expires. */
     test_function exited_process_history_and_missing_gaps() MonitorTestResult<void> {
       var a = make_heap_allocator();
       var history = History(a);
@@ -201,64 +201,64 @@ public module system_monitor {
       p.start = 3;
       p.cpu = 50.0;
       f.processes.push(p);
-      (try history.add(f));
+      try history.add(f);
       var next = Frame(a);
       next.elapsed = 1000;
-      (try history.add(next));
-      (try std.test.assert(
-        (try history_value((try history.frames.get(0)), 2, 3, false)) == 50.0,
+      try history.add(next);
+      try std.test.assert(
+        (try history_value(try history.frames.get(0), 2, 3, false)) == 50.0,
         "retained measurement"
-      ));
-      (try std.test.assert(
-        (try history_value((try history.frames.get(1)), 2, 3, false)) < 0.0,
+      );
+      try std.test.assert(
+        (try history_value(try history.frames.get(1), 2, 3, false)) < 0.0,
         "exit stays unavailable"
-      ));
+      );
 
       return MonitorTestResult.Ok;
     }
 
-    /* Filters ROS remaps to the ROS argument section. */
+    /** Filters ROS remaps to the ROS argument section. */
     test_function ordinary_arguments_do_not_rename_processes() MonitorTestResult<void> {
       var a = make_heap_allocator();
       var p = Process();
       p.exe = String("/bin/tool");
       p.args = String("tool\0__node:=fake\0");
-      (try label_process(a, p));
-      (try std.test.assert(p.label.equals_literal("tool"), "non-ROS arguments ignored"));
+      try label_process(a, p);
+      try std.test.assert(p.label.equals_literal("tool"), "non-ROS arguments ignored");
 
       return MonitorTestResult.Ok;
     }
 
-    /* Sanitizes process names before printing terminal control sequences. */
+    /** Sanitizes process names before printing terminal control sequences. */
     test_function terminal_names_are_plain_text() MonitorTestResult<void> {
       var a = make_heap_allocator();
       var s = String("a\x1b[2J\nb");
-      var text = (try safe_text(a, s, 20));
-      (try std.test.assert(text.equals_literal("a?[2J?b"), "escape and newline removed"));
+      var text = try safe_text(a, s, 20);
+      try std.test.assert(text.equals_literal("a?[2J?b"), "escape and newline removed");
 
       return MonitorTestResult.Ok;
     }
 
-    /* Verifies copied history owns display data independently of the live frame. */
+    /** Verifies copied history owns display data independently of the live frame. */
     test_function history_copy_does_not_alias_live_samples() MonitorTestResult<void> {
       var a = make_heap_allocator();
       var f = Frame(a);
       var p = Process();
       p.label = String("before");
       f.processes.push(p);
-      var copy = (try f.copy(a));
-      var changed_8064 = (try f.processes.get(0));
-      changed_8064.label = String("after");
-      (try std.test.assert(
+      var copy = try f.copy(a);
+      var copied_process = try f.processes.get(0);
+      copied_process.label = String("after");
+      try std.test.assert(
         (try copy.processes.get(0)).label.equals_literal("before"),
         "independent copy"
-      ));
+      );
 
       return MonitorTestResult.Ok;
     }
   }
 
-  /* Checks that changing rankings never modifies the resource measurements. */
+  /** Checks that changing rankings never modifies the resource measurements. */
   test_function memory_sort_preserves_cpu_samples() MonitorTestResult<void> {
     var a = make_heap_allocator();
     var f = Frame(a);
@@ -272,10 +272,10 @@ public module system_monitor {
     q.cpu = 3.0;
     q.rss = 20;
     f.processes.push(q);
-    var order = (try ranking(a, f, true));
-    (try std.test.assert_eq((try order.get(0)), 1i64));
-    (try std.test.assert((try f.processes.get(0)).cpu == 7.0, "CPU value preserved"));
-    (try std.test.assert((try f.processes.get(1)).cpu == 3.0, "CPU value preserved"));
+    var order = try ranking(a, f, true);
+    try std.test.assert_eq(try order.get(0), 1i64);
+    try std.test.assert((try f.processes.get(0)).cpu == 7.0, "CPU value preserved");
+    try std.test.assert((try f.processes.get(1)).cpu == 3.0, "CPU value preserved");
 
     return MonitorTestResult.Ok;
   }

@@ -1,47 +1,47 @@
-/* Tests resource parsing and calculations independently of the host. */
+/** Tests resource parsing and calculations independently of the host. */
 public module system_monitor {
 
   using std;
 
-  /* Groups resource collector and navigation checks. */
+  /** Groups resource collector and navigation checks. */
   module resource_tests {
 
-    /* Checks rates for elapsed time, idle links, resets and initial samples. */
+    /** Checks rates for elapsed time, idle links, resets and initial samples. */
     test_function rates_use_elapsed_time() MonitorTestResult<void> {
-      (try std.test.assert(traffic_rate(100, 1124, 500) == 2048.0, "actual sampling interval"));
-      (try std.test.assert(traffic_rate(100, 100, 500) == 0.0, "idle interface"));
-      (try std.test.assert(traffic_rate(100, 99, 500) < 0.0, "counter reset"));
-      (try std.test.assert(traffic_rate(0, 100, 0) < 0.0, "missing baseline"));
+      try std.test.assert(traffic_rate(100, 1124, 500) == 2048.0, "actual sampling interval");
+      try std.test.assert(traffic_rate(100, 100, 500) == 0.0, "idle interface");
+      try std.test.assert(traffic_rate(100, 99, 500) < 0.0, "counter reset");
+      try std.test.assert(traffic_rate(0, 100, 0) < 0.0, "missing baseline");
 
       return MonitorTestResult.Ok;
     }
 
-    /* Verifies receive and transmit columns and aggregated error counters. */
+    /** Verifies receive and transmit columns and aggregated error counters. */
     test_function parses_interface_counters() MonitorTestResult<void> {
       var a = make_heap_allocator();
-      var t = (try parse_traffic(a, String(" eth0: 1024 10 2 3 0 0 0 0 4096 20 4 5 0 0 0 0")));
-      (try std.test.assert(t.name.equals_literal("eth0"), "trimmed interface"));
-      (try std.test.assert_eq(t.received, 1024i64));
-      (try std.test.assert_eq(t.sent, 4096i64));
-      (try std.test.assert_eq(t.errors, 6i64));
-      (try std.test.assert_eq(t.drops, 8i64));
+      var t = try parse_traffic(a, String(" eth0: 1024 10 2 3 0 0 0 0 4096 20 4 5 0 0 0 0"));
+      try std.test.assert(t.name.equals_literal("eth0"), "trimmed interface");
+      try std.test.assert_eq(t.received, 1024i64);
+      try std.test.assert_eq(t.sent, 4096i64);
+      try std.test.assert_eq(t.errors, 6i64);
+      try std.test.assert_eq(t.drops, 8i64);
 
       return MonitorTestResult.Ok;
     }
 
-    /* Keeps invalid sensor readings distinct from real zero temperatures. */
+    /** Keeps invalid sensor readings distinct from real zero temperatures. */
     test_function missing_temperatures_are_unknown() MonitorTestResult<void> {
       var value = String("");
-      (try std.test.assert(temperature_text(value).equals_literal("N/A"), "missing sensor"));
+      try std.test.assert(temperature_text(value).equals_literal("N/A"), "missing sensor");
       value = String("42000");
-      (try std.test.assert(temperature_text(value).equals_literal("42.0"), "millidegrees"));
+      try std.test.assert(temperature_text(value).equals_literal("42.0"), "millidegrees");
       value = String("-5500");
-      (try std.test.assert(temperature_text(value).equals_literal("-5.5"), "subzero sensor"));
+      try std.test.assert(temperature_text(value).equals_literal("-5.5"), "subzero sensor");
 
       return MonitorTestResult.Ok;
     }
 
-    /* Rejects malformed interface rows instead of inventing counters. */
+    /** Rejects malformed interface rows instead of inventing counters. */
     test_function malformed_traffic_is_rejected() MonitorTestResult<void> {
       var a = make_heap_allocator();
       var rejected = false;
@@ -51,26 +51,26 @@ public module system_monitor {
           rejected = true;
         }
       };
-      (try std.test.assert(rejected, "short record rejected"));
+      try std.test.assert(rejected, "short record rejected");
 
       return MonitorTestResult.Ok;
     }
 
-    /* Keeps filesystem and mount names distinct from numeric capacity columns. */
+    /** Keeps filesystem and mount names distinct from numeric capacity columns. */
     test_function disk_rows_preserve_mounts_and_units() MonitorTestResult<void> {
       var a = make_heap_allocator();
-      var row = (try disk_row(a, String("/dev/disk name 1000 250 700 27% /media/My Disk")));
-      (try std.test.assert(
+      var row = try disk_row(a, String("/dev/disk name 1000 250 700 27% /media/My Disk"));
+      try std.test.assert(
         (try (try row.get("filesystem")).as_string()).equals_literal("/dev/disk name"),
         "filesystem with spaces"
-      ));
-      (try std.test.assert(
+      );
+      try std.test.assert(
         (try (try row.get("mount")).as_string()).equals_literal("/media/My Disk"),
         "mount with spaces"
-      ));
-      (try std.test.assert_eq((try (try row.get("total_bytes")).as_i64()), 1024000i64));
-      (try std.test.assert_eq((try (try row.get("available_bytes")).as_i64()), 716800i64));
-      (try std.test.assert_eq((try (try row.get("used_percent")).as_i64()), 27i64));
+      );
+      try std.test.assert_eq(try (try row.get("total_bytes")).as_i64(), 1024000i64);
+      try std.test.assert_eq(try (try row.get("available_bytes")).as_i64(), 716800i64);
+      try std.test.assert_eq(try (try row.get("used_percent")).as_i64(), 27i64);
       var rejected = false;
       match disk_row(a, String("Filesystem 1024-blocks Used Available Capacity Mounted on")) {
         Result.Ok(value) => {},
@@ -78,71 +78,71 @@ public module system_monitor {
           rejected = true;
         }
       };
-      (try std.test.assert(rejected, "header cannot become a measurement"));
-      row = (try disk_row(a, String("none 0 0 0 - /empty")));
-      (try std.test.assert(
+      try std.test.assert(rejected, "header cannot become a measurement");
+      row = try disk_row(a, String("none 0 0 0 - /empty"));
+      try std.test.assert(
         (try row.get("used_percent")).is_null(),
         "unknown filesystem percentage"
-      ));
-      (try std.test.assert_eq((try (try row.get("total_bytes")).as_i64()), 0i64));
+      );
+      try std.test.assert_eq(try (try row.get("total_bytes")).as_i64(), 0i64);
 
       return MonitorTestResult.Ok;
     }
 
-    /* Preserves the states and descriptions used by service tables and charts. */
+    /** Preserves the states and descriptions used by service tables and charts. */
     test_function service_rows_expose_failed_states() MonitorTestResult<void> {
       var a = make_heap_allocator();
-      var row = (try service_row(
+      var row = try service_row(
         a,
         String("camera.service loaded failed failed Robot camera service")
-      ));
-      (try std.test.assert(
+      );
+      try std.test.assert(
         (try (try row.get("active")).as_string()).equals_literal("failed"),
         "failed state"
-      ));
-      (try std.test.assert(
+      );
+      try std.test.assert(
         (try (try row.get("description")).as_string()).equals_literal("Robot camera service"),
         "description"
-      ));
+      );
 
       return MonitorTestResult.Ok;
     }
 
-    /* Distinguishes cold, critical and unreadable sensors without inventing thresholds. */
+    /** Distinguishes cold, critical and unreadable sensors without inventing thresholds. */
     test_function structured_sensor_values_preserve_unknowns() MonitorTestResult<void> {
       var a = make_heap_allocator();
-      var row = (try sensor_row(a, String("cold"), String("-5500"), String("")));
-      (try std.test.assert((try (try row.get("celsius")).as_f64()) == -5.5, "signed Celsius"));
-      (try std.test.assert((try row.get("critical_celsius")).is_null(), "unknown critical limit"));
-      (try std.test.assert(
+      var row = try sensor_row(a, String("cold"), String("-5500"), String(""));
+      try std.test.assert((try (try row.get("celsius")).as_f64()) == -5.5, "signed Celsius");
+      try std.test.assert((try row.get("critical_celsius")).is_null(), "unknown critical limit");
+      try std.test.assert(
         (try (try row.get("status")).as_string()).equals_literal("no threshold"),
         "not assumed healthy"
-      ));
-      row = (try sensor_row(a, String("hot"), String("90000"), String("90000")));
-      (try std.test.assert(
+      );
+      row = try sensor_row(a, String("hot"), String("90000"), String("90000"));
+      try std.test.assert(
         (try (try row.get("status")).as_string()).equals_literal("critical"),
         "threshold reached"
-      ));
-      row = (try sensor_row(a, String("missing"), String("invalid"), String("90000")));
-      (try std.test.assert((try row.get("celsius")).is_null(), "missing is not zero"));
-      (try std.test.assert(
+      );
+      row = try sensor_row(a, String("missing"), String("invalid"), String("90000"));
+      try std.test.assert((try row.get("celsius")).is_null(), "missing is not zero");
+      try std.test.assert(
         (try (try row.get("status")).as_string()).equals_literal("unavailable"),
         "missing status"
-      ));
-      (try std.test.assert(rate_json(-1.0).is_null(), "unknown rate"));
-      (try std.test.assert((try rate_json(0.0).as_f64()) == 0.0, "idle rate is real zero"));
+      );
+      try std.test.assert(rate_json(-1.0).is_null(), "unknown rate");
+      try std.test.assert((try rate_json(0.0).as_f64()) == 0.0, "idle rate is real zero");
 
       return MonitorTestResult.Ok;
     }
 
-    /* Verifies all menu shortcuts select a recognized monitor. */
+    /** Verifies all menu shortcuts select a recognized monitor. */
     test_function menu_choices_are_valid() MonitorTestResult<void> {
       for (var key: u8 = b'1'; key <= b'5'; key = key + 1u8) {
         var choice = monitor_choice(key);
-        (try std.test.assert(valid_monitor(choice), "known view"));
-        (try std.test.assert(not choice.equals_literal("menu"), "selects a monitor"));
+        try std.test.assert(valid_monitor(choice), "known view");
+        try std.test.assert(not choice.equals_literal("menu"), "selects a monitor");
       }
-      (try std.test.assert(not valid_monitor(String("unknown")), "reject unknown view"));
+      try std.test.assert(not valid_monitor(String("unknown")), "reject unknown view");
 
       return MonitorTestResult.Ok;
     }

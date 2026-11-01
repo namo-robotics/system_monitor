@@ -1,9 +1,9 @@
-/* Bounded retention of display samples, including exited processes. */
+/** Bounded retention of display samples, including exited processes. */
 public module system_monitor {
 
   using std;
 
-  /* Retains complete frames within a duration and estimated memory budget. */
+  /** Retains complete frames within a duration and estimated memory budget. */
   class History {
     var frames: Vec<Frame>;
     var bytes: i64 = 0;
@@ -13,32 +13,34 @@ public module system_monitor {
     var origin: i64 = -1;
     var latest: i64 = 0;
 
-    /* Initializes owned state and resources for this object. */
+    /** Initializes owned state and resources for this object. */
     init(alloc: const ref HeapAllocator) {
       this.frames = Vec<Frame>(alloc, 16);
     }
 
-    /* Retains a sample and evicts the oldest frames when limits are exceeded. */
+    /** Retains a sample and evicts the oldest frames when limits are exceeded. */
     method add(frame: Frame) Result<void> {
       var latest = frame.elapsed;
       if (this.origin < 0) {
         this.origin = latest;
       }
       this.latest = latest;
-      var cost = (try frame.cost());
+      var cost = try frame.cost();
       while ((this.frames.size()) > 0) {
         var removed_cost: i64 = 0;
         match this.frames.get(0) {
           AccessResult.Ok(oldest) => {
-          if (latest - oldest.elapsed <= this.duration and this.bytes + cost <= this.limit) {
-            break;
-          }
-          removed_cost = try oldest.cost();
+            if (latest - oldest.elapsed <= this.duration and this.bytes + cost <= this.limit) {
+              break;
+            }
+            removed_cost = try oldest.cost();
           },
-          AccessResult.OutOfBounds(error) => { return Result.OutOfBounds(error); }
+          AccessResult.OutOfBounds(error) => {
+            return Result.OutOfBounds(error);
+          }
         };
         this.bytes = this.bytes - removed_cost;
-        var removed = (try this.frames.remove(0));
+        var removed = try this.frames.remove(0);
         this.evicted = true;
       }
       // An oversized frame remains available to the current view, but is not retained.
@@ -52,7 +54,7 @@ public module system_monitor {
       return Result.Ok;
     }
 
-    /* Returns the elapsed time covered by retained samples. */
+    /** Returns the elapsed time covered by retained samples. */
     method window() Result<i64> {
       if ((this.frames.size()) < 2) {
         return Result.Ok(0);

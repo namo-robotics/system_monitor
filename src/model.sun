@@ -1,10 +1,13 @@
-/* Process samples, bounded history, and display-independent serialization. */
+/** Process samples, bounded history, and display-independent serialization. */
 public module system_monitor {
 
   using std;
 
   /** Copies a checked buffer element without keeping its storage borrowed. */
-  function buffer_value<T: _Primitive>(buffer: const ref ContiguousBuffer<T>, index: i64) AccessResult<T> {
+  function buffer_value<T: _Primitive>(
+    buffer: const ref ContiguousBuffer<T>,
+    index: i64
+  ) AccessResult<T> {
     var value: T = try buffer.get(index);
     return AccessResult.Ok(value);
   }
@@ -20,7 +23,7 @@ public module system_monitor {
     return AccessResult.Ok(try values.get(index));
   }
 
-  /* Owns the identity, metadata, and measurements of one process. */
+  /** Owns the identity, metadata, and measurements of one process. */
   class Process {
     var pid: i64 = 0;
     var start: i64 = 0;
@@ -32,7 +35,7 @@ public module system_monitor {
     var args: String = String("");
     var label: String = String("");
 
-    /* Formats a stable identity from the PID and process start marker. */
+    /** Formats a stable identity from the PID and process start marker. */
     method id() String {
       var s = String("");
       s.append(this.pid);
@@ -42,7 +45,7 @@ public module system_monitor {
     }
   }
 
-  /* Owns all measurements from one sampling instant. */
+  /** Owns all measurements from one sampling instant. */
   class Frame {
     var timestamp: i64 = 0;
     var elapsed: i64 = 0;
@@ -50,12 +53,12 @@ public module system_monitor {
     var inaccessible: i64 = 0;
     var processes: Vec<Process>;
 
-    /* Initializes owned state and resources for this object. */
+    /** Initializes owned state and resources for this object. */
     init(alloc: const ref HeapAllocator) {
       this.processes = Vec<Process>(alloc, 64);
     }
 
-    /* Copies display measurements while keeping raw baselines in the live frame. */
+    /** Copies display measurements while keeping raw baselines in the live frame. */
     method copy(a: const ref HeapAllocator) Result<Frame> {
       var out = Frame(a);
       out.timestamp = this.timestamp;
@@ -63,7 +66,7 @@ public module system_monitor {
       out.total_memory = this.total_memory;
       out.inaccessible = this.inaccessible;
       for (var i: i64 = 0; i < (this.processes.size()); i = i + 1) {
-        var p: ref Process = (try this.processes.get(i));
+        var p: ref Process = try this.processes.get(i);
         var q = Process();
         q.pid = p.pid;
         q.start = p.start;
@@ -77,11 +80,11 @@ public module system_monitor {
       return Result.Ok(out);
     }
 
-    /* Estimates owned storage conservatively for history budgeting. */
+    /** Estimates owned storage conservatively for history budgeting. */
     method cost() Result<i64> {
       var n: i64 = _sizeof<Frame>() + 128 + this.processes.capacity() * _sizeof<Process>();
       for (var i: i64 = 0; i < (this.processes.size()); i = i + 1) {
-        var p: ref Process = (try this.processes.get(i));
+        var p: ref Process = try this.processes.get(i);
         n = n + 384 + p.exe.capacity() + p.args.capacity() + p.label.capacity();
       }
       return Result.Ok(n);

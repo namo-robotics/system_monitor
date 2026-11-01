@@ -11,7 +11,7 @@
       "target": {
         "x86_64-linux-gnu": {
           "git": "https://github.com/namo-robotics/sun_serve.git",
-          "version": "a90791b818f70cf612fac70ece0582c5a6468cc2",
+          "version": "09cfe99ac12cd5de71a8a37b6f2f45aaedb98abd",
           "path": "src/sun_serve.sun"
         }
       }

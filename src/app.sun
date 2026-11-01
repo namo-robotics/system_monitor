@@ -1,16 +1,16 @@
-/* Coordinates sampling, presentation, and recording without coupling collectors to UI. */
+/** Coordinates sampling, presentation, and recording without coupling collectors to UI. */
 public module system_monitor {
 
   using std;
 
-  /* Prints the supported first-version command-line interface. */
+  /** Prints the supported first-version command-line interface. */
   function help() void {
     println(
       "Usage: system_monitor [options]\n  --monitor NAME            process|disk|service|network|temperature\n                            default process; terminal numbers 1-5 select tabs\n  --ui terminal|web|both      default terminal; web on Linux x86_64\n  --port PORT                localhost web port, default 29583\n  --top N|all                 default 10\n  --sort cpu|memory           default cpu\n  --interval SECONDS         default 1, minimum 0.1\n  --graph-window SECONDS     graph time span, default 60\n  --history SECONDS          default 600\n  --memory-limit MiB         retained history ceiling, default 64\n  --record FILE              write all samples as JSON Lines\n  --replay FILE              replay a recorded session\n  --labels FILE              JSON object mapping PID strings to labels\n  --samples N                exit after N samples\n  --version                  show the build commit\n  --help                     show this help\n\nTerminal: 1-5 tabs, Tab focus, Left/Right choose tab, Down/Enter view, q quit, c/m sort, f/0/a top 5/10/all, Up/Down select (Up at first row focuses tabs), t terminate, k kill, space pause, ? help"
     );
   }
 
-  /* Owns the independent pieces of a monitoring session. */
+  /** Owns the independent pieces of a monitoring session. */
   class Session {
     var options: Options;
     var history: History;
@@ -22,7 +22,7 @@ public module system_monitor {
     var samples: i64 = 0;
     var ticks: i64 = 0;
 
-    /* Configures storage and opens requested inputs before terminal setup. */
+    /** Configures storage and opens requested inputs before terminal setup. */
     init(a: ref HeapAllocator, options: Options) Result<void> {
       this.history = History(a);
       this.history.duration = options.history;
@@ -30,26 +30,26 @@ public module system_monitor {
       this.previous = Frame(a);
       this.labels = Labels(a);
       this.options = options;
-      this.ticks = (try clock_ticks());
-      (try this.load_labels(a));
-      (try this.open_replay(a));
-      (try this.open_recording(a));
+      this.ticks = try clock_ticks();
+      try this.load_labels(a);
+      try this.open_replay(a);
+      try this.open_recording(a);
 
       return Result.Ok;
     }
 
-    /* Validates the complete explicit label file before collection. */
+    /** Validates the complete explicit label file before collection. */
     method load_labels(a: ref HeapAllocator) Result<void> {
       if (this.options.labels.is_empty()) {
         return Result.Ok;
       }
-      var text = (try std.io.read_to_string(a, this.options.labels));
-      this.labels.document = (try parse_json(a, text));
+      var text = try std.io.read_to_string(a, this.options.labels);
+      this.labels.document = try parse_json(a, text);
       if (not this.labels.document.is_object()) {
         return Result.Error(Error(1, "labels must be a JSON object"));
       }
       for (var k: i64 = 0; k < this.labels.document.len(); k = k + 1) {
-        var pid = (try number((try this.labels.document.key_at(k))));
+        var pid = try numbertry this.labels.document.key_at(k);
         if (pid < 0 or not (try this.labels.document.value_at(k)).is_string()) {
           return Result.Error(Error(1, "labels require PID keys and string values"));
         }
@@ -58,23 +58,23 @@ public module system_monitor {
       return Result.Ok;
     }
 
-    /* Validates the recording header before accepting replay samples. */
+    /** Validates the recording header before accepting replay samples. */
     method open_replay(a: ref HeapAllocator) Result<void> {
       if (this.options.replay.is_empty()) {
         return Result.Ok;
       }
-      (try this.replay.file.open(this.options.replay, std.io.FileMode.Read));
-      var line = (try this.replay.line(a));
-      var meta = (try parse_json(a, line));
-      if (((try (try meta.get("version")).as_i64())) != 1 or
-        not ((try (try meta.get("type")).as_string())).equals_literal("session")) {
+      try this.replay.file.open(this.options.replay, std.io.FileMode.Read);
+      var line = try this.replay.line(a);
+      var meta = try parse_json(a, line);
+      if (try (try meta.get("version")).as_i64() != 1 or
+        not try (try meta.get("type")).as_string().equals_literal("session")) {
         return Result.Error(Error(1, "unsupported recording header"));
       }
 
       return Result.Ok;
     }
 
-    /* Opens a new recording without overwriting an existing session. */
+    /** Opens a new recording without overwriting an existing session. */
     method open_recording(a: ref HeapAllocator) Result<void> {
       if (this.options.record.is_empty()) {
         return Result.Ok;
@@ -82,30 +82,30 @@ public module system_monitor {
       if (std.io.exists(this.options.record)) {
         return Result.Error(Error(1, "recording file already exists; choose a new path"));
       }
-      (try this.recording.open(this.options.record, std.io.FileMode.Write));
-      var header = (try metadata(a, this.options));
-      (try write_record(this.recording, header));
+      try this.recording.open(this.options.record, std.io.FileMode.Write);
+      var header = try metadata(a, this.options);
+      try write_record(this.recording, header);
 
       return Result.Ok;
     }
 
-    /* Collects live data and applies identity-aware calculations and labels. */
+    /** Collects live data and applies identity-aware calculations and labels. */
     method live_frame(a: ref HeapAllocator, elapsed: i64) Result<Frame> {
-      var frame = (try collect(a, elapsed));
-      (try calculate(frame, this.previous, this.ticks));
-      (try this.labels.apply(a, frame));
+      var frame = try collect(a, elapsed);
+      try calculate(frame, this.previous, this.ticks);
+      try this.labels.apply(a, frame);
       return Result.Ok(frame);
     }
 
-    /* Reads the next replay sample and checks chronological ordering. */
+    /** Reads the next replay sample and checks chronological ordering. */
     method replay_frame(a: ref HeapAllocator) Result<Frame> {
-      var line = (try this.replay.line(a));
+      var line = try this.replay.line(a);
       if (line.is_empty() and this.replay.eof) {
         this.finished = true;
         return Result.Ok(Frame(a));
       }
-      var doc = (try parse_json(a, line));
-      var frame = (try decode_frame(a, doc));
+      var doc = try parse_json(a, line);
+      var frame = try decode_frame(a, doc);
       if (frame.elapsed < this.replay.last_elapsed) {
         return Result.Error(Error(1, "recording timestamps must be monotonic"));
       }
@@ -113,35 +113,35 @@ public module system_monitor {
       return Result.Ok(frame);
     }
 
-    /* Publishes one complete sample to history and the optional recording. */
+    /** Publishes one complete sample to history and the optional recording. */
     method sample(a: ref HeapAllocator, elapsed: i64) Result<void> {
       var frame = Frame(a);
       if (this.options.replay.is_empty()) {
-        frame = (try this.live_frame(a, elapsed));
+        frame = try this.live_frame(a, elapsed);
       } else {
-        frame = (try this.replay_frame(a));
+        frame = try this.replay_frame(a);
       }
       if (this.finished) {
         return Result.Ok;
       }
       if (this.recording.is_open()) {
-        var json = (try frame_json(a, frame));
+        var json = try frame_json(a, frame);
         var text = json.to_string(a);
-        (try write_record(this.recording, text));
+        try write_record(this.recording, text);
       }
-      (try this.history.add((try frame.copy(a))));
+      try this.history.addtry frame.copy(a);
       this.previous = frame;
       this.samples = this.samples + 1;
 
       return Result.Ok;
     }
 
-    /* Reports whether a finite sampling request has completed. */
+    /** Reports whether a finite sampling request has completed. */
     method reached_limit() bool {
       return this.options.samples > 0 and this.samples >= this.options.samples;
     }
 
-    /* Flushes recorded data before the session closes. */
+    /** Flushes recorded data before the session closes. */
     method finish() Result<void> {
       if (this.recording.is_open()) {
         try this.recording.sync();
@@ -151,10 +151,10 @@ public module system_monitor {
     }
   }
 
-  /* Runs the event loop with terminal restoration handled by ownership. */
+  /** Runs the event loop with terminal restoration handled by ownership. */
   function monitor(a: ref HeapAllocator, session: ref Session) Result<void> {
-    var web = (try Web(a, session.options));
-    var terminal = (try Terminal(a, not session.options.ui.equals_literal("web")));
+    var web = try Web(a, session.options);
+    var terminal = try Terminal(a, not session.options.ui.equals_literal("web"));
     var resources = Resources(a);
     var resource_view = ResourceView(a);
     resource_view.history.duration = session.options.graph_window;
@@ -166,7 +166,7 @@ public module system_monitor {
     var due: i64 = 0;
     var last = String("");
     while (not stopping()) {
-      var redraw = (try terminal.key(a, session.options));
+      var redraw = try terminal.key(a, session.options);
       var now = start.elapsed().as_millis();
       var changed = not last.equals(session.options.monitor);
       if (changed) {
@@ -179,16 +179,16 @@ public module system_monitor {
       var process_view = session.options.monitor.equals_literal("process");
       if (now >= due) {
         if ((hosting or process_view) and not session.finished) {
-          (try session.sample(a, now));
-          (web.publish(a, session));
+          try session.sample(a, now);
+          try web.publish(a, session);
         }
-        (web.publish_resources(a, now));
+        try web.publish_resources(a, now);
         if (not process_view and not session.options.ui.equals_literal("web")) {
           (resources.sample(a, session.options.monitor, now));
           if (terminal.active) {
-            (try resource_view.history.add(
-              (try resource_frame(a, resources, session.options.monitor, now))
-            ));
+            try resource_view.history.add
+              try resource_frame(a, resources, session.options.monitor, now)
+            ;
           }
         }
         due = now + session.options.interval;
@@ -197,12 +197,12 @@ public module system_monitor {
       if (redraw and not session.options.ui.equals_literal("web")) {
         if (process_view and session.samples > 0) {
           terminal.finished = session.finished;
-          (try terminal.draw(a, session.previous, session.history, session.options));
+          try terminal.draw(a, session.previous, session.history, session.options);
         } else if (not process_view) {
           if (terminal.active) {
-            (try resource_view.draw(a, resources, terminal, session.options));
+            try resource_view.draw(a, resources, terminal, session.options);
           } else {
-            (try resources.draw(a, terminal, session.options.monitor));
+            try resources.draw(a, terminal, session.options.monitor);
           }
         }
       }
@@ -216,15 +216,15 @@ public module system_monitor {
       std.time.sleep(std.time.create_duration_millis(50));
     }
     web.close();
-    (try session.finish());
+    try session.finish();
 
     return Result.Ok;
   }
 
-  /* Parses configuration and starts one monitor session. */
+  /** Parses configuration and starts one monitor session. */
   function run(argc: i32, argv: raw_ptr<raw_ptr<u8>>) Result<i32> {
     var a = make_heap_allocator();
-    var o = (try options(a, argc, argv));
+    var o = try options(a, argc, argv);
     if (o.version) {
       var version = String("system_monitor ");
       version.append(build_revision());
@@ -236,12 +236,12 @@ public module system_monitor {
       return Result.Ok(0);
     }
     unsafe { pm_signal(2, _bitcast<i64>(on_signal)); pm_signal(15, _bitcast<i64>(on_signal)); };
-    var session = (try Session(a, o));
-    (try monitor(a, session));
+    var session = try Session(a, o);
+    try monitor(a, session);
     return Result.Ok(0);
   }
 
-  /* Runs the public CLI boundary and reports failures after resources unwind. */
+  /** Runs the public CLI boundary and reports failures after resources unwind. */
   public function entry(argc: i32, argv: raw_ptr<raw_ptr<u8>>) i32 {
     match run(argc, argv) {
       Result.Ok(value) => {
