@@ -150,7 +150,7 @@ public module system_monitor {
     if (fd < 0) {
       return Result.Error(Error(1, "process handle unavailable"));
     }
-    var result = (try signal_pinned(a, pid, start, signal, fd));
+    var result = signal_pinned(a, pid, start, signal, fd);
     unsafe { pm_close(fd); };
     try result;
 
