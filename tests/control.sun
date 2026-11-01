@@ -1,13 +1,17 @@
 /* Checks signalling against disposable children and rejects unsafe UI actions. */
 public module system_monitor {
+
   using std;
 
   /* Creates a disposable child for native signal tests. */
   extern "C" function test_fork() i32 as "fork";
+
   /* Keeps the child alive without allocating after fork. */
   extern "C" function test_sleep(seconds: u32) u32 as "sleep";
+
   /* Exits the child without running inherited cleanup handlers. */
   extern "C" function test_exit(code: i32) void as "_exit";
+
   /* Reaps the child and returns its termination status. */
   extern "C" function test_waitpid(pid: i32, status: raw_ptr<i32>, flags: i32) i32 as "waitpid";
 
@@ -37,7 +41,10 @@ public module system_monitor {
       var status: i32 = 0;
       var reaped = unsafe { test_waitpid(pid, _address_of<i32>(status), 0); };
       std.test.assert(start >= 0, "child identity available");
-      std.test.assert(stale.equals_literal("Signal failed: process exited, changed, or permission denied"), "stale identity rejected");
+      std.test.assert(
+        stale.equals_literal("Signal failed: process exited, changed, or permission denied"),
+        "stale identity rejected"
+      );
       std.test.assert_eq(reaped, pid);
       std.test.assert_eq(status & 127, signal);
     }
@@ -51,11 +58,17 @@ public module system_monitor {
     options.monitor = String("process");
     terminal.apply_key(b't', options);
     terminal.perform_action(a, options);
-    std.test.assert(terminal.notice.equals_literal("Select a visible process before sending a signal"), "empty selection rejected");
+    std.test.assert(
+      terminal.notice.equals_literal("Select a visible process before sending a signal"),
+      "empty selection rejected"
+    );
     options.replay = String("session.jsonl");
     terminal.apply_key(b'k', options);
     terminal.perform_action(a, options);
-    std.test.assert(terminal.notice.equals_literal("Process actions are disabled during replay"), "replay rejected");
+    std.test.assert(
+      terminal.notice.equals_literal("Process actions are disabled during replay"),
+      "replay rejected"
+    );
     std.test.assert_eq(terminal.pending_signal, 0i32);
     var group = control_process(a, 0, 0, 9);
     var init = control_process(a, 1, 0, 9);

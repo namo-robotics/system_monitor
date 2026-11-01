@@ -1,5 +1,6 @@
 /* Behavioral tests for identity-aware ranking and time-scaled dot graphs. */
 public module system_monitor {
+
   using std;
 
   /* Builds a fixture with opposite CPU and memory rankings. */
@@ -103,6 +104,7 @@ public module system_monitor {
       std.test.assert_eq(empty.masks.get(i), 0i64);
     }
   }
+
   /* Grows across a fixed span, then scrolls without resetting after eviction. */
   test_function trend_window_grows_then_scrolls() {
     var a = make_heap_allocator();
@@ -113,13 +115,19 @@ public module system_monitor {
     first.elapsed = 5000;
     history.add(first);
     std.test.assert_eq(graph.begin(history), 5000i64);
-    std.test.assert_eq(time_pixel(5000, graph.begin(history), graph.begin(history) + graph.duration, 121), 0i64);
+    std.test.assert_eq(
+      time_pixel(5000, graph.begin(history), graph.begin(history) + graph.duration, 121),
+      0i64
+    );
     var middle = Frame(a);
     middle.elapsed = 35000;
     history.add(middle);
     std.test.assert_eq(history.frames.size(), 1i64);
     std.test.assert_eq(graph.begin(history), 5000i64);
-    std.test.assert_eq(time_pixel(35000, graph.begin(history), graph.begin(history) + graph.duration, 121), 60i64);
+    std.test.assert_eq(
+      time_pixel(35000, graph.begin(history), graph.begin(history) + graph.duration, 121),
+      60i64
+    );
     var full = Frame(a);
     full.elapsed = 65000;
     history.add(full);
@@ -128,7 +136,10 @@ public module system_monitor {
     later.elapsed = 75000;
     history.add(later);
     std.test.assert_eq(graph.begin(history), 15000i64);
-    std.test.assert_eq(time_pixel(75000, graph.begin(history), graph.begin(history) + graph.duration, 121), 120i64);
+    std.test.assert_eq(
+      time_pixel(75000, graph.begin(history), graph.begin(history) + graph.duration, 121),
+      120i64
+    );
   }
 
   /* Leaves future columns blank and excludes peaks outside the visible span. */
@@ -155,6 +166,7 @@ public module system_monitor {
     history.add(later);
     std.test.assert_eq(graph.scale(history, false), 7.0);
   }
+
   /* Fills every dot below a sample and keeps shorter areas in front in either order. */
   test_function filled_columns_overlap_by_height() {
     var a = make_heap_allocator();
@@ -178,6 +190,7 @@ public module system_monitor {
       std.test.assert_eq(canvas.owners.get(5), 0i64);
     }
   }
+
   /* Handles split arrow sequences without treating their bytes as shortcuts. */
   test_function terminal_arrows_move_selection() {
     var a = make_heap_allocator();

@@ -1,5 +1,6 @@
 /* Checks keyboard focus, shared shortcuts and terminal tab rendering. */
 public module system_monitor {
+
   using std;
 
   /* Sends an arrow sequence one byte at a time, as it may arrive from a terminal. */
@@ -21,7 +22,10 @@ public module system_monitor {
       terminal.pending_signal = 9;
       terminal.apply_key(key, options);
       std.test.assert(options.monitor.equals(monitor_choice(key)), "number selects monitor");
-      std.test.assert(not terminal.paused and not terminal.tabs_focused, "direct shortcut enters view");
+      std.test.assert(
+        not terminal.paused and not terminal.tabs_focused,
+        "direct shortcut enters view"
+      );
       std.test.assert_eq(terminal.selected_pid, 0i64);
       std.test.assert_eq(terminal.pending_signal, 0i32);
     }
@@ -90,7 +94,10 @@ public module system_monitor {
     terminal.columns = 80;
     var strip = String("");
     terminal.tabs(a, strip, String("process"));
-    std.test.assert(strip.contains("[1 Processes]") and strip.contains("5 Temperature"), "complete horizontal tabs");
+    std.test.assert(
+      strip.contains("[1 Processes]") and strip.contains("5 Temperature"),
+      "complete horizontal tabs"
+    );
     terminal.columns = 40;
     strip.clear();
     terminal.tabs(a, strip, String("temperature"));
