@@ -6,8 +6,7 @@
         "x86_64-linux-gnu": {
           "package": "namo-robotics/sun_serve",
           "library": "namo-robotics/sun_serve",
-          "url": "https://github.com/namo-robotics/sun_serve/releases/download/dev/sun_serve-x86_64-linux-gnu.moon",
-          "hash": "ad5b5eb01383ed21d7423252a81ede4bfdca4d7fd74818a20005a2166a0ba934"
+          "url": "https://github.com/namo-robotics/sun_serve/releases/download/dev/sun_serve-x86_64-linux-gnu.moon"
         }
       }
     }
