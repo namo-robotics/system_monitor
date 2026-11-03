@@ -1,34 +1,47 @@
 {
   "root": true,
-  "sun_path": [
-    "build"
-  ],
   "path_variables": {
     "MUSL_LIB": ".ci/musl/x86_64-linux-musl-cross/x86_64-linux-musl/lib"
   },
-  "dependencies": {
-    "SUN_SERVE": {
+  "dependencies": [
+    {
       "target": {
         "x86_64-linux-gnu": {
+          "package": "namo-robotics/sun_serve",
+          "library": "namo-robotics/sun_serve",
           "git": "https://github.com/namo-robotics/sun_serve.git",
           "version": "09cfe99ac12cd5de71a8a37b6f2f45aaedb98abd",
           "path": "src/sun_serve.sun"
         }
       }
     }
-  },
+  ],
   "entrypoints": [
     {
-      "path": "build/main.sun",
+      "path": "${SUN_BUILD}/main.sun",
       "type": "binary",
-      "output_name": "build/system_monitor",
-      "test_binary_name": "build/system_monitor_test",
-      "name": "system_monitor"
+      "name": "system_monitor",
+      "steps": [
+        "version",
+        "entrypoint"
+      ],
+      "export": true,
+      "compile_args": {
+        "default": [
+          "--static"
+        ],
+        "target": {
+          "arm64-apple-darwin": [
+            "--dynamic",
+            "-lproc"
+          ]
+        }
+      }
     },
     {
       "path": "tests/acceptance.sun",
       "type": "binary",
-      "output_name": "build/acceptance"
+      "name": "acceptance"
     }
   ],
   "packages": [
@@ -43,6 +56,44 @@
           "destination": "share/system_monitor/dashboard.html"
         }
       ]
+    }
+  ],
+  "package_id": "namo-robotics/system_monitor",
+  "steps": [
+    {
+      "name": "version",
+      "command": [
+        "bash",
+        "scripts/build-version.sh",
+        "${SUN_BUILD}"
+      ],
+      "inputs": [
+        "scripts/build-version.sh"
+      ],
+      "outputs": [
+        "${SUN_BUILD}/version.sun"
+      ]
+    },
+    {
+      "name": "entrypoint",
+      "command": [
+        "bash",
+        "scripts/build-web.sh",
+        "${SUN_BUILD}"
+      ],
+      "inputs": [
+        "src/main.sun",
+        "scripts/build-web.sh"
+      ],
+      "outputs": [
+        "${SUN_BUILD}/main.sun"
+      ]
+    }
+  ],
+  "exports": [
+    {
+      "path": "assets/dashboard.html",
+      "destination": "share/system_monitor/dashboard.html"
     }
   ]
 }

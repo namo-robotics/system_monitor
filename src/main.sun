@@ -7,6 +7,7 @@ function main(argc: i32, argv: raw_ptr<raw_ptr<u8>>) i32 {
 }
 
 manifest {
+  id: "namo-robotics/system_monitor"
   source_files: [
     "model.sun",
     "history.sun",
@@ -26,7 +27,7 @@ manifest {
     "table.sun",
     "trend.sun",
     "app.sun",
-    "../build/version.sun",
+    "$SUN_BUILD/version.sun",
     "web-disabled.sun"
   ]
   target: {

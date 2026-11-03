@@ -1,15 +1,30 @@
 #!/usr/bin/env bash
-# Select web support and stage the dashboard beside development binaries.
+# Select web support and generate the entrypoint in the requested build directory.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-target=${SUN_TARGET:-$(uname -m)-$(uname -s)}
-mkdir -p build
-if [[ "$target" == x86_64-* && "$target" == *[Ll]inux* && "${SUN_WEB:-1}" != 0 ]]; then
-  mkdir -p build/share/system_monitor
-  cp assets/dashboard.html build/share/system_monitor/dashboard.html
-  sed -e 's|"web-disabled.sun"|"web.sun"|' \
-      -e 's|"stdlib.moon"|"stdlib.moon", "$SUN_SERVE/sun_serve.moon"|' \
-      -e 's|"\([^"]*\.sun\)"|"../src/\1"|g' src/main.sun > build/main.sun
-else
-  sed 's|"\([^"]*\.sun\)"|"../src/\1"|g' src/main.sun > build/main.sun
-fi
+web_output=${1:-build}
+web_target=${SUN_TARGET:-$(uname -m)-$(uname -s)}
+mkdir -p "$web_output"
+python3 - "$web_output" "$web_target" "${SUN_WEB:-1}" <<'PYTHON'
+"""Generate a relocatable entrypoint with explicit source paths and web selection."""
+import pathlib
+import re
+import sys
+
+root = pathlib.Path.cwd()
+output = pathlib.Path(sys.argv[1])
+text = (root / "src/main.sun").read_text()
+if sys.argv[2].startswith("x86_64-") and "linux" in sys.argv[2].lower() and sys.argv[3] != "0":
+    text = text.replace('"web-disabled.sun"', '"web.sun"')
+    text = text.replace('"stdlib.moon"', '"stdlib.moon", "${namo-robotics/sun_serve}/lib/sun_serve.moon"')
+
+
+def source_path(match):
+    """Anchor literal source paths while leaving config variables unresolved."""
+    value = match.group(1)
+    return '"' + (value if "$" in value else str((root / "src" / value).resolve())) + '"'
+
+
+text = re.sub(r'"([^"\n]+\.sun)"', source_path, text)
+(output / "main.sun").write_text(text)
+PYTHON

@@ -37,7 +37,7 @@ For a direct Linux build after staging with `scripts/build.sh`, run:
 ```sh
 export PATH="$PWD/.ci/musl/x86_64-linux-musl-cross/bin:$PATH"
 export SUN_CC=x86_64-linux-musl-gcc
-sun -c --static sun-config.json
+sun build --config sun-config.json --static
 ```
 
 Sun otherwise falls back to static glibc when musl is absent. The build script
@@ -76,8 +76,9 @@ Git sources and compiled libraries under
 `~/.sun/cache/git`; set `SUN_GIT_CACHE` to change that location. The library is
 linked into the monitor and is not a separate file in the release package.
 
-`scripts/build.sh` stages the version and target manifest, then runs
-`sun -c --static sun-config.json` on Linux (with `--dynamic` on macOS). Sun builds
+`scripts/build.sh` selects the compiler, standard library, and platform linker
+flags, then calls `sun build --config sun-config.json` once for all entrypoints.
+The configured steps generate the version and web entrypoint. Sun builds
 the binaries and assembles
 `dist/system_monitor-<target>/` plus its `.tar.gz`. The package contains
 `bin/system_monitor` and `share/system_monitor/dashboard.html`. Sun's

@@ -10,3 +10,5 @@ system_monitor_test
 *.exe
 *.o
 *.obj
+/sun/
+/.sun/

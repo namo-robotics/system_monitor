@@ -2,7 +2,8 @@
 # Exercise platform archive naming without requiring each platform's compiler.
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
-work=$(mktemp -d)
+mkdir -p "${TMPDIR:-/tmp}"
+work=$(mktemp -d "${TMPDIR:-/tmp}/system-monitor-build.XXXXXX")
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/scripts" "$work/bin" "$work/toolchain/bin" "$work/toolchain/lib/sun/aarch64-linux-gnu"
 cp "$root/scripts/build.sh" "$work/scripts/build.sh"
@@ -19,7 +20,14 @@ esac
 SH
 cat > "$work/toolchain/bin/sun" <<'SH'
 #!/usr/bin/env bash
-if [[ "$1" == --help ]]; then echo 'sun -c sun-config.json'; exit 0; fi
+set -euo pipefail
+if [[ "$1" == describe ]]; then
+  [[ "${*: -2}" == '--field build_root' ]]
+  printf '%s/build\n' "$PWD"
+  exit 0
+fi
+[[ "$1" == build && "$*" != *--entrypoint* ]]
+printf 'build\n' >> build-calls
 mkdir -p dist
 if [[ "${TEST_MISSING:-0}" != 1 ]]; then
   printf 'fresh package\n' > "dist/system_monitor-$TEST_CANONICAL.tar.gz"
@@ -54,4 +62,5 @@ if bash "$work/scripts/build.sh" > "$work/missing.log" 2>&1; then
   exit 1
 fi
 grep -q 'Sun did not produce the expected package: dist/system_monitor-aarch64-unknown-darwin.tar.gz' "$work/missing.log"
+[[ $(wc -l < "$work/build-calls") -eq 4 ]]
 echo 'PASS build script: Linux x86_64, Linux ARM64, macOS ARM64 archive names and missing-package diagnostics'

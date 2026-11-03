@@ -7,8 +7,9 @@ if [[ ! "$revision" =~ ^[0-9a-f]{40}$ && "$revision" != unknown ]]; then
   echo 'BUILD_REVISION must be a full commit SHA or unknown.' >&2
   exit 1
 fi
-mkdir -p build
-cat > build/version.sun <<EOF
+version_output=${1:-build}
+mkdir -p "$version_output"
+cat > "$version_output/version.sun" <<EOF
 /* Identifies the source commit used to build this executable. */
 public module system_monitor {
   /* Returns the commit identity embedded at build time. */
