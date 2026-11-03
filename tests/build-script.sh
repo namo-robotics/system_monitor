@@ -23,12 +23,15 @@ cat > "$work/toolchain/bin/sun" <<'SH'
 set -euo pipefail
 if [[ "$1" == describe ]]; then
   [[ "${*: -2}" == '--field build_root' ]]
-  printf '%s/build\n' "$PWD"
+  printf '%s/compiler-output\n' "$PWD"
   exit 0
 fi
 [[ "$1" == build ]]
 printf 'build\n' >> build-calls
-mkdir -p dist
+mkdir -p dist compiler-output
+for binary in system_monitor system_monitor_test acceptance; do
+  printf 'fixture\n' > "compiler-output/$binary"
+done
 if [[ "${TEST_MISSING:-0}" != 1 ]]; then
   printf 'fresh package\n' > "dist/system_monitor-$TEST_CANONICAL.tar.gz"
 fi

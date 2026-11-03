@@ -48,6 +48,10 @@ if [[ "$host_os" == Linux ]]; then
   done
 fi
 
+# Stage executables at the paths used by native tests and CI artifact uploads.
+cp "$build_root/system_monitor" "$build_root/system_monitor_test" \
+  "$build_root/acceptance" build/
+
 # Normalize LLVM's canonical triples to the release scripts' public filenames.
 canonical_archive="dist/system_monitor-$canonical_target.tar.gz"
 package_archive="dist/system_monitor-$package_target.tar.gz"
