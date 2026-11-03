@@ -9,7 +9,7 @@ if [[ -z "${SUN_BIN:-}" ]]; then
     SUN_BIN=sun
   fi
 fi
-export SUN_GIT_CACHE=${SUN_GIT_CACHE:-"$PWD/.ci/git-cache"}
+export SUN_DEPENDENCY_CACHE=${SUN_DEPENDENCY_CACHE:-"$PWD/.ci/dependency-cache"}
 link_flags=()
 host_os=$(uname -s)
 if [[ "$host_os" == Darwin ]]; then

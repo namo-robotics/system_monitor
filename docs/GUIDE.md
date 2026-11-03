@@ -19,7 +19,7 @@ Xcode command line tools. The application and acceptance tests are Sun code.
 Build and install scripts use standard shell utilities.
 
 ```sh
-# On x86_64 Linux, install musl and its OpenSSL/zlib archives first.
+# On x86_64 Linux, install the precompiled musl linker toolchain first.
 if [[ $(uname -s) == Linux ]]; then bash scripts/setup-musl.sh; fi
 scripts/ci-toolchain.sh
 export SUN_BIN="$PWD/.ci/toolchain/bin/sun"
@@ -66,15 +66,14 @@ checks in `FOLLOWUP.md` pass. Cross-compilation is not a substitute for those ch
 using the latest rolling Sun release. The toolchain script downloads the compiler
 and matching standard libraries into `.ci/toolchain` on each run.
 
-`sun-config.json` declares `SUN_SERVE` as a Git source dependency pinned to a
-commit, using `src/sun_serve.sun` from that repository. On Linux x86_64, Sun
-fetches and compiles the library before building the monitor. The generated
-manifest imports `"$SUN_SERVE/sun_serve.moon"`. The dependency is unavailable
-on other targets. Its `MUSL_LIB` path variable points to the musl-built OpenSSL and
-zlib archives under `.ci/musl`, installed by `scripts/setup-musl.sh`. Sun caches
-Git sources and compiled libraries under
-`~/.sun/cache/git`; set `SUN_GIT_CACHE` to change that location. The library is
-linked into the monitor and is not a separate file in the release package.
+`sun-config.json` selects the precompiled Linux x86_64 `sun_serve` release by
+URL and SHA-256 digest. Sun downloads and validates the bundle; it does not
+fetch or compile the server's sources. The generated manifest imports
+`"${namo-robotics/sun_serve}/lib/sun_serve.moon"`. The build script keeps the
+cache in `.ci/dependency-cache`; set `SUN_DEPENDENCY_CACHE` to override it.
+The bundle carries its native archives and is linked into the monitor.
+When the rolling `dev` asset changes, update its URL and digest together after
+checking compatibility. Other targets do not use this dependency.
 
 `scripts/build.sh` selects the compiler, standard library, and platform linker
 flags, then builds the exported application and explicitly selects the acceptance
