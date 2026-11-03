@@ -26,7 +26,7 @@ if [[ "$1" == describe ]]; then
   printf '%s/build\n' "$PWD"
   exit 0
 fi
-[[ "$1" == build && "$*" != *--entrypoint* ]]
+[[ "$1" == build ]]
 printf 'build\n' >> build-calls
 mkdir -p dist
 if [[ "${TEST_MISSING:-0}" != 1 ]]; then
@@ -62,5 +62,5 @@ if bash "$work/scripts/build.sh" > "$work/missing.log" 2>&1; then
   exit 1
 fi
 grep -q 'Sun did not produce the expected package: dist/system_monitor-aarch64-unknown-darwin.tar.gz' "$work/missing.log"
-[[ $(wc -l < "$work/build-calls") -eq 4 ]]
+[[ $(wc -l < "$work/build-calls") -eq 8 ]]
 echo 'PASS build script: Linux x86_64, Linux ARM64, macOS ARM64 archive names and missing-package diagnostics'

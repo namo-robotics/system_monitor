@@ -36,6 +36,7 @@ compiler=$(command -v "$SUN_BIN")
 library=${SUN_LIB_ROOT:-$(dirname "$compiler")/../lib/sun}
 cp "$library/${SUN_TARGET:+$SUN_TARGET/}stdlib.moon" build/stdlib.moon
 "$SUN_BIN" build --config sun-config.json "${link_flags[@]}"
+"$SUN_BIN" build --config sun-config.json --entrypoint acceptance "${link_flags[@]}"
 build_root=$("$SUN_BIN" describe --config sun-config.json "${link_flags[@]}" --field build_root)
 if [[ "$host_os" == Linux ]]; then
   for binary in "$build_root/system_monitor" "$build_root/system_monitor_test" "$build_root/acceptance"; do

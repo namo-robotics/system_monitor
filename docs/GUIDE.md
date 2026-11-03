@@ -77,7 +77,8 @@ Git sources and compiled libraries under
 linked into the monitor and is not a separate file in the release package.
 
 `scripts/build.sh` selects the compiler, standard library, and platform linker
-flags, then calls `sun build --config sun-config.json` once for all entrypoints.
+flags, then builds the exported application and explicitly selects the acceptance
+entrypoint in a second build call.
 The configured steps generate the version and web entrypoint. Sun builds
 the binaries and assembles
 `dist/system_monitor-<target>/` plus its `.tar.gz`. The package contains
