@@ -47,6 +47,9 @@ public module system_monitor {
           var p = value;
           false;
         },
+        (e: const ref ArithmeticError) => {
+          true;
+        },
         (e: const ref IError) => {
           true;
         }

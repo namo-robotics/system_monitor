@@ -26,3 +26,38 @@ if [[ ! -x "$toolchain/bin/$arch-linux-musl-gcc" ]]; then
   fetch "https://github.com/musl-cc/musl.cc/releases/download/v0.0.1/$arch-linux-musl-cross.tgz" toolchain.tgz "$checksum"
   tar -xzf "$work/toolchain.tgz" -C "$root"
 fi
+
+# The web dependency embeds these static archives in its source-built bundle.
+if [[ "$arch" == x86_64 ]]; then
+  prefix="$toolchain/$arch-linux-musl"
+  export PATH="$toolchain/bin:$PATH"
+  jobs=$(getconf _NPROCESSORS_ONLN)
+  jobs=$((jobs / 2))
+  if (( jobs < 1 )); then jobs=1; fi
+  if [[ ! -f "$prefix/lib/libz.a" ]]; then
+    fetch 'https://github.com/madler/zlib/releases/download/v1.3.2/zlib-1.3.2.tar.gz' zlib.tgz \
+      bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16
+    mkdir -p "$work/zlib"
+    tar -xzf "$work/zlib.tgz" -C "$work/zlib" --strip-components=1
+    (
+      cd "$work/zlib"
+      CC=x86_64-linux-musl-gcc AR=x86_64-linux-musl-ar RANLIB=x86_64-linux-musl-ranlib \
+        ./configure --static --prefix="$prefix"
+      make -j"$jobs"
+      make install
+    )
+  fi
+  if [[ ! -f "$prefix/lib/libssl.a" || ! -f "$prefix/lib/libcrypto.a" ]]; then
+    fetch 'https://github.com/openssl/openssl/releases/download/openssl-3.3.7/openssl-3.3.7.tar.gz' openssl.tgz \
+      4900be54e81c4dfe00bb1a10dad33fd8414833573c40d0e9e3274d4ed32e53a2
+    mkdir -p "$work/openssl"
+    tar -xzf "$work/openssl.tgz" -C "$work/openssl" --strip-components=1
+    (
+      cd "$work/openssl"
+      ./Configure linux-x86_64 no-shared no-dso no-tests no-apps no-docs \
+        --cross-compile-prefix=x86_64-linux-musl- --prefix="$prefix" --libdir=lib
+      make -j"$jobs" build_libs
+      make install_dev
+    )
+  fi
+fi

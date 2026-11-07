@@ -47,6 +47,9 @@ public module system_monitor {
       var rejected = false;
       match parse_traffic(a, String("eth0: 1 2")) {
         Result.Ok(value) => {},
+        (e: const ref ArithmeticError) => {
+          rejected = true;
+        },
         (e: const ref IError) => {
           rejected = true;
         }
@@ -74,6 +77,9 @@ public module system_monitor {
       var rejected = false;
       match disk_row(a, String("Filesystem 1024-blocks Used Available Capacity Mounted on")) {
         Result.Ok(value) => {},
+        (e: const ref ArithmeticError) => {
+          rejected = true;
+        },
         (e: const ref IError) => {
           rejected = true;
         }

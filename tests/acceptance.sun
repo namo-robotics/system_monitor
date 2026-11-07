@@ -182,6 +182,10 @@ public module acceptance {
       MonitorTestResult.Ok(value) => {
         return value;
       },
+      (e: const ref ArithmeticError) => {
+        eprintln(e.message());
+        return 1;
+      },
       (e: const ref IError) => {
         eprintln(e.message());
         return 1;
@@ -498,6 +502,7 @@ public module acceptance {
             Option.None => {}
           };
         },
+        (e: const ref ArithmeticError) => {},
         (e: const ref IError) => {}
       };
       sleep(50);

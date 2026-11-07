@@ -66,14 +66,13 @@ checks in `FOLLOWUP.md` pass. Cross-compilation is not a substitute for those ch
 using the latest rolling Sun release. The toolchain script downloads the compiler
 and matching standard libraries into `.ci/toolchain` on each run.
 
-`sun-config.json` selects the precompiled Linux x86_64 `sun_serve` release by
-URL and SHA-256 digest. Sun downloads and validates the bundle; it does not
-fetch or compile the server's sources. The generated manifest imports
-`"${namo-robotics/sun_serve}/lib/sun_serve.moon"`. The build script keeps the
-cache in `.ci/dependency-cache`; set `SUN_DEPENDENCY_CACHE` to override it.
-The bundle carries its native archives and is linked into the monitor.
-When the rolling `dev` asset changes, update its URL and digest together after
-checking compatibility. Other targets do not use this dependency.
+`sun-config.json` builds the Linux x86_64 `sun_serve` Git dependency with the
+selected compiler. The generated manifest imports
+`"${namo-robotics/sun_serve}/lib/sun_serve.moon"`. `scripts/setup-musl.sh` builds
+checksum-verified static zlib and OpenSSL archives with the musl toolchain.
+`scripts/build.sh` passes their location as `MUSL_LIB` so the server bundle
+embeds those archives without depending on the server repository's default
+installation path. Other targets do not use this dependency.
 
 `scripts/build.sh` selects the compiler, standard library, and platform linker
 flags, then builds the exported application and explicitly selects the acceptance

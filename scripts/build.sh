@@ -27,6 +27,9 @@ else
     exit 1
   }
   link_flags+=(--static)
+  if [[ "$arch" == x86_64 ]]; then
+    link_flags+=(--path-var "MUSL_LIB=$PWD/.ci/musl/$arch-linux-musl-cross/$arch-linux-musl/lib")
+  fi
 fi
 if [[ -n "${SUN_TARGET:-}" ]]; then
   link_flags+=(--target "$SUN_TARGET")

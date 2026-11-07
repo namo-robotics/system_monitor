@@ -247,6 +247,12 @@ public module system_monitor {
       Result.Ok(value) => {
         return value;
       },
+      (e: const ref ArithmeticError) => {
+        var message = String(e.message());
+        message.append("\n");
+        unsafe { pm_write(2, message.bytes(), message.length()); };
+        return 1;
+      },
       (e: const ref IError) => {
         var message = e.message();
         message.append("\n");

@@ -23,7 +23,7 @@ public module system_monitor {
 
   /** Reads a numbered system setting, including process arguments. */
   extern "C" function pm_sysctl(
-    name: raw_ptr<u8>,
+    name: raw_ptr<i32>,
     count: u32,
     out: raw_ptr<u8>,
     size: raw_ptr<u64>,
@@ -183,7 +183,14 @@ public module system_monitor {
     var data = ContiguousBuffer<u8>(a, 1048576);
     var size: u64 = 1048576;
     var rc = unsafe {
-      pm_sysctl(mib.raw_data(), 3, data.raw_data(), _address_of<u64>(size), null, 0);
+      pm_sysctl(
+        _bitcast<raw_ptr<i32>>(mib.raw_data()),
+        3,
+        data.raw_data(),
+        _address_of<u64>(size),
+        null,
+        0
+      );
     };
     var out = String("");
     if (rc != 0 or size < 5) {
@@ -258,6 +265,9 @@ public module system_monitor {
       match darwin_process(a, pid) {
         Result.Ok(value) => {
           f.processes.push(value);
+        },
+        (e: const ref ArithmeticError) => {
+          f.inaccessible = f.inaccessible + 1;
         },
         (e: const ref IError) => {
           f.inaccessible = f.inaccessible + 1;
