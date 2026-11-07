@@ -31,12 +31,12 @@ if [[ "$TEST_OS" == Linux && -z "${SUN_TARGET:-}" ]]; then
   [[ " $* " == *" --path-var MUSL_LIB=$PWD/.ci/musl/x86_64-linux-musl-cross/x86_64-linux-musl/lib "* ]]
 fi
 printf 'build\n' >> build-calls
-mkdir -p dist compiler-output
+mkdir -p compiler-output/packages
 for binary in system_monitor system_monitor_test acceptance; do
   printf 'fixture\n' > "compiler-output/$binary"
 done
 if [[ "${TEST_MISSING:-0}" != 1 ]]; then
-  printf 'fresh package\n' > "dist/system_monitor-$TEST_CANONICAL.tar.gz"
+  printf 'fresh package\n' > "compiler-output/packages/system_monitor.tar.gz"
 fi
 SH
 chmod +x "$work/bin/uname" "$work/toolchain/bin/sun"
@@ -51,22 +51,22 @@ done
 export PATH="$work/bin:$PATH"
 export SUN_BIN="$work/toolchain/bin/sun"
 unset SUN_LIB_ROOT
-export TEST_ARCH=x86_64 TEST_OS=Linux TEST_CANONICAL=x86_64-unknown-linux-gnu SUN_TARGET=
+export TEST_ARCH=x86_64 TEST_OS=Linux SUN_TARGET=
 bash "$work/scripts/build.sh"
-cmp "$work/dist/system_monitor-$TEST_CANONICAL.tar.gz" "$work/dist/system_monitor-x86_64-linux-gnu.tar.gz"
-export SUN_TARGET=aarch64-linux-gnu TEST_CANONICAL=aarch64-unknown-linux-gnu
+cmp "$work/compiler-output/packages/system_monitor.tar.gz" "$work/dist/system_monitor-x86_64-linux-gnu.tar.gz"
+export SUN_TARGET=aarch64-linux-gnu
 bash "$work/scripts/build.sh"
-cmp "$work/dist/system_monitor-$TEST_CANONICAL.tar.gz" "$work/dist/system_monitor-aarch64-linux-gnu.tar.gz"
-export TEST_OS=Darwin TEST_ARCH=arm64 TEST_CANONICAL=aarch64-unknown-darwin SUN_TARGET=
+cmp "$work/compiler-output/packages/system_monitor.tar.gz" "$work/dist/system_monitor-aarch64-linux-gnu.tar.gz"
+export TEST_OS=Darwin TEST_ARCH=arm64 SUN_TARGET=
 bash "$work/scripts/build.sh"
-cmp "$work/dist/system_monitor-$TEST_CANONICAL.tar.gz" "$work/dist/system_monitor-arm64-apple-darwin.tar.gz"
+cmp "$work/compiler-output/packages/system_monitor.tar.gz" "$work/dist/system_monitor-arm64-apple-darwin.tar.gz"
 # A stale public archive must not conceal a missing compiler output.
-rm "$work/dist/system_monitor-$TEST_CANONICAL.tar.gz"
+rm "$work/compiler-output/packages/system_monitor.tar.gz"
 export TEST_MISSING=1
 if bash "$work/scripts/build.sh" > "$work/missing.log" 2>&1; then
   echo 'Build accepted a stale public archive without compiler output.' >&2
   exit 1
 fi
-grep -q 'Sun did not produce the expected package: dist/system_monitor-aarch64-unknown-darwin.tar.gz' "$work/missing.log"
+grep -Fq "Sun did not produce the expected package: $work/compiler-output/packages/system_monitor.tar.gz" "$work/missing.log"
 [[ $(wc -l < "$work/build-calls") -eq 8 ]]
 echo 'PASS build script: Linux x86_64, Linux ARM64, macOS ARM64 archive names and missing-package diagnostics'

@@ -14,12 +14,10 @@ link_flags=()
 host_os=$(uname -s)
 if [[ "$host_os" == Darwin ]]; then
   package_target=${SUN_TARGET:-arm64-apple-darwin}
-  canonical_target=aarch64-unknown-darwin
   link_flags+=(--dynamic -lproc)
 else
   package_target=${SUN_TARGET:-$(uname -m)-linux-gnu}
   arch=${package_target%%-*}
-  canonical_target="$arch-unknown-linux-gnu"
   export PATH="$PWD/.ci/musl/$arch-linux-musl-cross/bin:$PATH"
   export SUN_CC="$arch-linux-musl-gcc"
   command -v "$SUN_CC" >/dev/null || {
@@ -55,15 +53,16 @@ fi
 cp "$build_root/system_monitor" "$build_root/system_monitor_test" \
   "$build_root/acceptance" build/
 
-# Normalize LLVM's canonical triples to the release scripts' public filenames.
-canonical_archive="dist/system_monitor-$canonical_target.tar.gz"
+# Stage Sun's package under the release scripts' public filename.
+compiler_archive="$build_root/packages/system_monitor.tar.gz"
 package_archive="dist/system_monitor-$package_target.tar.gz"
-if [[ ! -f "$canonical_archive" ]]; then
-  echo "Sun did not produce the expected package: $canonical_archive" >&2
+if [[ ! -f "$compiler_archive" ]]; then
+  echo "Sun did not produce the expected package: $compiler_archive" >&2
   echo "Available archives:" >&2
-  find dist -maxdepth 1 -name '*.tar.gz' -print >&2
+  if [[ -d "$build_root/packages" ]]; then
+    find "$build_root/packages" -maxdepth 1 -name '*.tar.gz' -print >&2
+  fi
   exit 1
 fi
-if [[ "$canonical_archive" != "$package_archive" ]]; then
-  cp "$canonical_archive" "$package_archive"
-fi
+mkdir -p dist
+cp "$compiler_archive" "$package_archive"
