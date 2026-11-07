@@ -4,9 +4,15 @@
     {
       "target": {
         "x86_64-linux-gnu": {
-          "package": "namo-robotics/sun_serve",
-          "library": "namo-robotics/sun_serve",
-          "url": "https://github.com/namo-robotics/sun_serve/releases/download/dev/sun_serve-x86_64-linux-gnu.moon"
+          "git": "git@github.com:namo-robotics/sun_serve.git",
+          "version": "main",
+          "packages": {
+            "namo-robotics/sun_serve": {
+              "entrypoints": [
+                "sun_serve"
+              ]
+            }
+          }
         }
       }
     }

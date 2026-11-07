@@ -118,6 +118,11 @@ build/system_monitor
 The build script prefers `.ci/toolchain/bin/sun`, then falls back to `sun` on
 `PATH`. Set `SUN_BIN` to override the compiler explicitly.
 
+The Linux x86_64 build resolves `sun_serve` from Git and builds it with the
+selected compiler. `sun-config.json` uses SSH and `main`; `version` also accepts
+a tag or commit. Run `sun build --refresh-sources` to refresh cached revisions.
+Public CI uses HTTPS.
+
 Or select a view directly:
 
 ```sh
