@@ -5,6 +5,8 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 mkdir -p "${TMPDIR:-/tmp}"
 work=$(mktemp -d "${TMPDIR:-/tmp}/system-monitor-build.XXXXXX")
 trap 'rm -rf "$work"' EXIT
+# Match the normalized working directory reported by the compiler stub.
+work=$(cd "$work" && pwd)
 mkdir -p "$work/scripts" "$work/bin" "$work/toolchain/bin" "$work/toolchain/lib/sun/aarch64-linux-gnu"
 cp "$root/scripts/build.sh" "$work/scripts/build.sh"
 printf ':\n' > "$work/scripts/build-version.sh"
@@ -67,6 +69,10 @@ if bash "$work/scripts/build.sh" > "$work/missing.log" 2>&1; then
   echo 'Build accepted a stale public archive without compiler output.' >&2
   exit 1
 fi
-grep -Fq "Sun did not produce the expected package: $work/compiler-output/packages/system_monitor.tar.gz" "$work/missing.log"
+if ! grep -Fq "Sun did not produce the expected package: $work/compiler-output/packages/system_monitor.tar.gz" "$work/missing.log"; then
+  echo 'Build did not report the missing compiler package at the expected path.' >&2
+  cat "$work/missing.log" >&2
+  exit 1
+fi
 [[ $(wc -l < "$work/build-calls") -eq 8 ]]
 echo 'PASS build script: Linux x86_64, Linux ARM64, macOS ARM64 archive names and missing-package diagnostics'
