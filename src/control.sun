@@ -16,9 +16,6 @@ public module system_monitor {
     }
     match signal_process(a, _convert<i32>(pid), start, signal) {
       Result.Ok => {},
-      (e: const ref ArithmeticError) => {
-        return String("Signal failed: process exited, changed, or permission denied");
-      },
       (e: const ref IError) => {
         return String("Signal failed: process exited, changed, or permission denied");
       }

@@ -169,9 +169,6 @@ public module system_monitor {
       Result.Ok(value) => {
         return value;
       },
-      (e: const ref ArithmeticError) => {
-        return String("N/A");
-      },
       (e: const ref IError) => {
         return String("N/A");
       }
@@ -262,9 +259,6 @@ public module system_monitor {
       Result.Ok(value) => {
         return Json(_convert<f64>(value) / 1000.0);
       },
-      (e: const ref ArithmeticError) => {
-        return Json();
-      },
       (e: const ref IError) => {
         return Json();
       }
@@ -295,11 +289,9 @@ public module system_monitor {
               status = String("critical");
             }
           },
-          (e: const ref ArithmeticError) => {},
           (e: const ref IError) => {}
         };
       },
-      (e: const ref ArithmeticError) => {},
       (e: const ref IError) => {}
     };
     try row.set(String("status"), Json(status));
@@ -377,7 +369,6 @@ public module system_monitor {
           Result.Ok(value) => {
             try this.rows.push(value);
           },
-          (e: const ref ArithmeticError) => {},
           (e: const ref IError) => {}
         };
       }
@@ -524,11 +515,9 @@ public module system_monitor {
                 row.append("  CRITICAL");
               }
             },
-            (e: const ref ArithmeticError) => {},
             (e: const ref IError) => {}
           };
         },
-        (e: const ref ArithmeticError) => {},
         (e: const ref IError) => {}
       };
       this.lines.push(row);
@@ -596,7 +585,6 @@ public module system_monitor {
             Result.Ok(value) => {
               sensors = sensors + value;
             },
-            (e: const ref ArithmeticError) => {},
             (e: const ref IError) => {}
           };
         }
@@ -648,12 +636,6 @@ public module system_monitor {
       this.message = String("");
       match this.collect_view(a, name, now) {
         Result.Ok => {},
-        (e: const ref ArithmeticError) => {
-          var message = String("Unavailable: ");
-          message.append(e.message());
-          this.message = message.clone(a);
-          this.lines.push(message);
-        },
         (e: const ref IError) => {
           var message = String("Unavailable: ");
           message.append(e.message());

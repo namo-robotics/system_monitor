@@ -77,10 +77,6 @@ public module system_monitor {
       resp.set_content_type("application/json");
       match this.api(req, resp) {
         Result.Ok => {},
-        (e: const ref ArithmeticError) => {
-          resp.set_status(400);
-          resp.set_body("{\"error\":\"invalid history identity\"}");
-        },
         (e: const ref IError) => {
           resp.set_status(400);
           resp.set_body("{\"error\":\"invalid history identity\"}");

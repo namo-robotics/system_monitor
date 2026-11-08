@@ -182,9 +182,6 @@ public module system_monitor {
         Result.Ok(value) => {
           f.processes.push(value);
         },
-        (e: const ref ArithmeticError) => {
-          f.inaccessible = f.inaccessible + 1;
-        },
         (e: const ref IError) => {
           f.inaccessible = f.inaccessible + 1;
         }
