@@ -2,19 +2,19 @@
   "root": true,
   "dependencies": [
     {
-      "target": {
-        "x86_64-linux-gnu": {
-          "git": "git@github.com:namo-robotics/sun_serve.git",
-          "version": "main",
-          "packages": {
-            "namo-robotics/sun_serve": {
-              "entrypoints": [
-                "sun_serve"
-              ]
-            }
-          }
+      "type": "git",
+      "url": "git@github.com:namo-robotics/sun_serve.git",
+      "version": "main",
+      "packages": {
+        "namo-robotics/sun_serve": {
+          "entrypoints": [
+            "sun_serve"
+          ]
         }
-      }
+      },
+      "supported_targets": [
+        "x86_64-linux-gnu"
+      ]
     }
   ],
   "entrypoints": [
