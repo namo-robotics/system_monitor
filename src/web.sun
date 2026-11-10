@@ -136,25 +136,24 @@ public module system_monitor {
     /** Reads one consistent publication without borrowing collector state. */
     method read(a: const ref HeapAllocator, req: const ref Request) String {
       var guard = this.state.lock();
-      var publication: const ref Publication = guard.get();
       if (req.path_is("/api/v1/resources")) {
-        return publication.resources.clone(a);
+        return guard.get().resources.clone(a);
       }
       if (req.path_is("/api/v1/snapshot")) {
-        return publication.snapshot.clone(a);
+        return guard.get().snapshot.clone(a);
       }
       if (req.path_is("/api/v1/status")) {
-        return publication.status.clone(a);
+        return guard.get().status.clone(a);
       }
       if (req.path_is("/api/v1/history")) {
-        return publication.history.clone(a);
+        return guard.get().history.clone(a);
       }
       var text = String("{\"snapshot\":");
-      text.append(publication.snapshot);
+      text.append(guard.get().snapshot);
       text.append(",\"history\":");
-      text.append(publication.history);
+      text.append(guard.get().history);
       text.append(",\"status\":");
-      text.append(publication.status);
+      text.append(guard.get().status);
       text.append("}");
       return text;
     }
