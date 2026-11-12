@@ -39,8 +39,10 @@ public module system_monitor {
     }
     var pid = try stat.substr(a, 0, begin);
     pid.trim();
-    var rest = try stat.substr(a, end + 1, stat.length() - end - 1);
-    var fields = rest.split_whitespace(a);
+    var rest = try 
+      stat.substr(a, end + 1, stat.length() - end - 1)
+    ;
+    var fields = try rest.split_whitespace(a);
     if (fields.size() < 22) {
       return Result.Error(Error(1, "short process stat"));
     }
@@ -48,57 +50,58 @@ public module system_monitor {
     p.pid = try number(pid);
     p.exe = try stat.substr(a, begin + 1, end - begin - 1);
     p.start = try number(try fields.get(19));
-    p.ticks = (try number(try fields.get(11))) + (try number(try fields.get(12)));
-    p.rss = (try number(try fields.get(21))) * page;
-    return Result.Ok(p);
+    p.ticks = try number(try fields.get(11)) + try number(try fields.get(12));
+    p.rss = try number(try fields.get(21)) * page;
+    return Result.Ok(try p);
   }
 
   /** Reads the host's physical memory total from procfs. */
   function physical_memory(a: ref HeapAllocator) Result<i64> {
     var mem = try std.io.read_to_string(a, "/proc/meminfo");
-    var lines = mem.split(a, 10u8);
+    var lines = try mem.split(a, 10u8);
     for (var i: i64 = 0; i < lines.size(); i = i + 1) {
-      if ((try vector_read(lines, i)).starts_with("MemTotal:")) {
-        var parts = (try vector_read(lines, i)).split_whitespace(a);
-        return Result.Ok((try number(try parts.get(1))) * 1024);
+      var line = try vector_read(lines, i);
+      if (line.starts_with("MemTotal:")) {
+        var parts = try line.split_whitespace(a);
+        return Result.Ok(try number(try parts.get(1)) * 1024);
       }
     }
     return Result.Error(Error(1, "physical memory total unavailable"));
   }
 
   /** Reads optional arguments and executable metadata without dropping a sample. */
-  function linux_metadata(a: ref HeapAllocator, base: const ref String, p: ref Process) void {
-    var cmd = base.clone(a);
-    cmd.append("/cmdline");
-    match std.io.read_to_string(a, cmd) {
-      SystemResult.Ok(value) => {
-        p.args = value;
-      },
-      (e: const ref IError) => {}
+  function linux_metadata(
+    a: ref HeapAllocator,
+    base: const ref String,
+    p: ref Process
+  ) std.Result<void> {
+    var cmd = try base.clone(a);
+    try cmd.append("/cmdline");
+    var arguments = std.io.read_to_string(a, cmd);
+    match arguments {
+      (error: const ref Error) => {},
+      _ => { p.args = try arguments; }
     };
-    var exe = base.clone(a);
-    exe.append("/exe");
-    var buffer = ContiguousBuffer<u8>(a, 4096);
-    var n = unsafe { pm_readlink(exe.c_str(), buffer.raw_data(), 4095i64); };
+    var exe = try base.clone(a);
+    try exe.append("/exe");
+    var buffer = try ContiguousBuffer<u8>(a, 4096);
+    var n = unsafe { pm_readlink(try exe.c_str(), buffer.raw_data(), 4095i64); };
     if (n > 0) {
-      match String(a, buffer, n) {
-        AccessResult.Ok(path) => {
-          p.exe = path;
-        },
-        (e: const ref IError) => {}
-      };
+      p.exe = try String(a, buffer, n);
     }
+
+    return std.Result.Ok;
   }
 
   /** Reads a process and verifies that its identity survived metadata collection. */
   function linux_process(a: ref HeapAllocator, name: const ref String, page: i64) Result<Process> {
-    var base = String("/proc/");
-    base.append(name);
-    var path = base.clone(a);
-    path.append("/stat");
+    var base = try String("/proc/");
+    try base.append(name);
+    var path = try base.clone(a);
+    try path.append("/stat");
     var stat = try std.io.read_to_string(a, path);
     var p = try parse_stat(a, stat, page);
-    linux_metadata(a, base, p);
+    try linux_metadata(a, base, p);
     var confirm = try std.io.read_to_string(a, path);
     var check = try parse_stat(a, confirm, page);
     if (check.start != p.start) {
@@ -134,9 +137,9 @@ public module system_monitor {
     signal: i32,
     fd: i32
   ) Result<void> {
-    var path = String("/proc/");
-    path.append(pid);
-    path.append("/stat");
+    var path = try String("/proc/");
+    try path.append(pid);
+    try path.append("/stat");
     var stat = try std.io.read_to_string(a, path);
     var process = try parse_stat(a, stat, 1);
     if (process.start != start) {
@@ -164,7 +167,7 @@ public module system_monitor {
 
   /** Samples visible processes and counts entries that disappear or cannot be read. */
   function collect(a: ref HeapAllocator, elapsed: i64) Result<Frame> {
-    var f = Frame(a);
+    var f = try Frame(a);
     f.timestamp = std.time.read_unix_time_millis();
     f.elapsed = elapsed;
     f.total_memory = try physical_memory(a);
@@ -180,7 +183,7 @@ public module system_monitor {
       }
       match linux_process(a, name, page) {
         Result.Ok(value) => {
-          f.processes.push(value);
+          try f.processes.push(value);
         },
         (e: const ref IError) => {
           f.inaccessible = f.inaccessible + 1;

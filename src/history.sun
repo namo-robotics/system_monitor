@@ -14,8 +14,8 @@ public module system_monitor {
     var latest: i64 = 0;
 
     /** Initializes owned state and resources for this object. */
-    init(alloc: const ref HeapAllocator) {
-      this.frames = Vec<Frame>(alloc, 16);
+    init(alloc: const ref HeapAllocator) std.AllocationResult<void> {
+      this.frames = try Vec<Frame>(alloc, 16);
     }
 
     /** Retains a sample and evicts the oldest frames when limits are exceeded. */
@@ -49,7 +49,7 @@ public module system_monitor {
         return Result.Ok;
       }
       this.bytes = this.bytes + cost;
-      this.frames.push(frame);
+      try this.frames.push(frame);
 
       return Result.Ok;
     }

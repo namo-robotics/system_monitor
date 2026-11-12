@@ -5,39 +5,39 @@ public module system_monitor {
 
   /** Bounds text length and removes terminal control characters. */
   function safe_text(a: const ref HeapAllocator, s: const ref String, width: i64) Result<String> {
-    var out = String("");
+    var out = try String("");
     for (var i: i64 = 0; i < s.length() and i < width; i = i + 1) {
       var ch = try s.at(i);
       if (ch >= 32u8 and ch < 127u8) {
-        out.append_char(ch);
+        try out.append_char(ch);
       } else {
-        out.append("?");
+        try out.append("?");
       }
     }
     return Result.Ok(out);
   }
 
   /** Formats an available measurement with a decimal digit or an unavailable marker. */
-  function decimal(value: f64) String {
+  function decimal(value: f64) std.AllocationResult<String> {
     if (value < 0.0) {
-      return String("N/A");
+      return std.AllocationResult.Ok(try String("N/A"));
     }
     var n = _convert<i64>(value * 10.0);
-    var out = String("");
-    out.append(n / 10);
-    out.append(".");
-    out.append(n % 10);
-    return out;
+    var out = try String("");
+    try out.append(n / 10);
+    try out.append(".");
+    try out.append(n % 10);
+    return std.AllocationResult.Ok(out);
   }
 
   /** Pads a formatted value to its display column width. */
-  function padded(s: const ref String, width: i64) String {
-    var out = String("");
-    out.append(s);
+  function padded(s: const ref String, width: i64) std.AllocationResult<String> {
+    var out = try String("");
+    try out.append(s);
     while (out.length() < width) {
-      out.append(" ");
+      try out.append(" ");
     }
-    return out;
+    return std.AllocationResult.Ok(out);
   }
 
   /** Reads one resource value for a stable identity without allocating strings. */

@@ -10,11 +10,11 @@ fi
 version_output=${1:-build}
 mkdir -p "$version_output"
 cat > "$version_output/version.sun" <<EOF
-/* Identifies the source commit used to build this executable. */
+/** Identifies the source commit used to build this executable. */
 public module system_monitor {
-  /* Returns the commit identity embedded at build time. */
-  function build_revision() std.String {
-    return std.String("$revision");
+  /** Returns the commit identity embedded at build time. */
+  function build_revision() static_ptr<u8> {
+    return "$revision";
   }
 }
 EOF

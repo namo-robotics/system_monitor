@@ -128,7 +128,7 @@ public module system_monitor {
 
   /** Queries physical memory without requiring a task port. */
   function physical_memory() Result<i64> {
-    var name = String("hw.memsize");
+    var name = try String("hw.memsize");
     var bytes: u64 = 0;
     var size: u64 = 8;
     var rc = unsafe {
@@ -164,7 +164,7 @@ public module system_monitor {
 
   /** Rechecks the observed identity immediately before signalling a macOS process. */
   function signal_process(a: ref HeapAllocator, pid: i32, start: i64, signal: i32) Result<void> {
-    if ((try darwin_identity(pid)) != start) {
+    if (try darwin_identity(pid) != start) {
       return Result.Error(Error(1, "process identity changed"));
     }
     if (unsafe { pm_kill(pid, signal); } != 0) {
@@ -176,11 +176,11 @@ public module system_monitor {
 
   /** Copies only argv from KERN_PROCARGS2, excluding environment variables. */
   function darwin_arguments(a: const ref HeapAllocator, pid: i32) Result<String> {
-    var mib = ContiguousBuffer<i32>(a, 3);
+    var mib = try ContiguousBuffer<i32>(a, 3);
     try mib.set(0, 1);
     try mib.set(1, 49);
     try mib.set(2, pid);
-    var data = ContiguousBuffer<u8>(a, 1048576);
+    var data = try ContiguousBuffer<u8>(a, 1048576);
     var size: u64 = 1048576;
     var rc = unsafe {
       pm_sysctl(
@@ -192,7 +192,7 @@ public module system_monitor {
         0
       );
     };
-    var out = String("");
+    var out = try String("");
     if (rc != 0 or size < 5) {
       return Result.Ok(out);
     }
@@ -207,10 +207,10 @@ public module system_monitor {
     }
     for (var i: i32 = 0; i < argc and pos < end; i = i + 1) {
       while (pos < end and (try buffer_value(data, pos)) != 0u8) {
-        out.append_char(try buffer_value(data, pos));
+        try out.append_char(try buffer_value(data, pos));
         pos = pos + 1;
       }
-      out.append_char(0u8);
+      try out.append_char(0u8);
       pos = pos + 1;
     }
     return Result.Ok(out);
@@ -221,20 +221,20 @@ public module system_monitor {
     var p = Process();
     p.pid = _convert<i64>(pid);
     p.start = try darwin_identity(pid);
-    var task = ContiguousBuffer<u64>(a, 12);
+    var task = try ContiguousBuffer<u64>(a, 12);
     task.fill(0);
     var n = unsafe { pm_pidinfo(pid, 4, 0, task.raw_data(), 96); };
     if (n == 96) {
       p.rss = _convert<i64>(try buffer_value(task, 1));
-      p.ticks = _convert<i64>((try buffer_value(task, 2)) + (try buffer_value(task, 3)));
+      p.ticks = _convert<i64>(try buffer_value(task, 2) + try buffer_value(task, 3));
     }
-    var path = ContiguousBuffer<u8>(a, 4096);
+    var path = try ContiguousBuffer<u8>(a, 4096);
     path.fill(0);
     if (unsafe { pm_pidpath(pid, path.raw_data(), 4096); } > 0) {
       p.exe = from_c_str(a, path.raw_data());
     }
     p.args = try darwin_arguments(a, pid);
-    if ((try darwin_identity(pid)) != p.start) {
+    if (try darwin_identity(pid) != p.start) {
       return Result.Error(Error(1, "process changed during collection"));
     }
     try label_process(a, p);
@@ -252,7 +252,7 @@ public module system_monitor {
       return Result.Error(Error(1, "cannot enumerate processes"));
     }
     var capacity = _convert<i64>(needed) / 4 + 1024;
-    var pids = ContiguousBuffer<i32>(a, capacity);
+    var pids = try ContiguousBuffer<i32>(a, capacity);
     var n = unsafe { pm_listpids(1, 0, pids.raw_data(), _convert<i32>(capacity * 4)); };
     if (n <= 0) {
       return Result.Error(Error(1, "cannot read process list"));
@@ -264,7 +264,7 @@ public module system_monitor {
       }
       match darwin_process(a, pid) {
         Result.Ok(value) => {
-          f.processes.push(value);
+          try f.processes.push(value);
         },
         (e: const ref IError) => {
           f.inaccessible = f.inaccessible + 1;

@@ -32,12 +32,12 @@ public module system_monitor {
           start = (try vector_read(frame.processes, row)).start;
         }
       }
-      var stale = control_process(a, _convert<i64>(pid), start + 1, 15);
+      var stale = try control_process(a, _convert<i64>(pid), start + 1, 15);
       var signal: i32 = 15;
       if (i == 1) {
         signal = 9;
       }
-      var sent = control_process(a, _convert<i64>(pid), start, signal);
+      var sent = try control_process(a, _convert<i64>(pid), start, signal);
       var status: i32 = 0;
       var reaped = unsafe { test_waitpid(pid, _address_of<i32>(status), 0); };
       try std.test.assert(start >= 0, "child identity available");
@@ -57,14 +57,14 @@ public module system_monitor {
     var a = make_heap_allocator();
     var terminal = try Terminal(a, false);
     var options = Options();
-    options.monitor = String("process");
+    options.monitor = try String("process");
     terminal.apply_key(b't', options);
     try terminal.perform_action(a, options);
     try std.test.assert(
       terminal.notice.equals_literal("Select a visible process before sending a signal"),
       "empty selection rejected"
     );
-    options.replay = String("session.jsonl");
+    options.replay = try String("session.jsonl");
     terminal.apply_key(b'k', options);
     try terminal.perform_action(a, options);
     try std.test.assert(
@@ -72,9 +72,9 @@ public module system_monitor {
       "replay rejected"
     );
     try std.test.assert_eq(terminal.pending_signal, 0i32);
-    var group = control_process(a, 0, 0, 9);
-    var init = control_process(a, 1, 0, 9);
-    var own = control_process(a, _convert<i64>(unsafe { pm_getpid(); }), 0, 9);
+    var group = try control_process(a, 0, 0, 9);
+    var init = try control_process(a, 1, 0, 9);
+    var own = try control_process(a, _convert<i64>(unsafe { pm_getpid(); }), 0, 9);
     try std.test.assert(group.equals_literal("Cannot signal this PID"), "group rejected");
     try std.test.assert(init.equals_literal("Cannot signal this PID"), "init rejected");
     try std.test.assert(own.equals_literal("Cannot signal this PID"), "self rejected");

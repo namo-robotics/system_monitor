@@ -5,9 +5,9 @@ public module system_monitor {
 
   /** Returns stable descending row indices without moving process samples. */
   function ranking(a: const ref HeapAllocator, f: ref Frame, memory: bool) Result<Vec<i64>> {
-    var order = Vec<i64>(a, f.processes.size());
+    var order = try Vec<i64>(a, f.processes.size());
     for (var i: i64 = 0; i < f.processes.size(); i = i + 1) {
-      order.push(i);
+      try order.push(i);
     }
     // Shell sort keeps ordering deterministic without moving owned process records.
     var gap = order.size() / 2;

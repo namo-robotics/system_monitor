@@ -5,8 +5,8 @@ public module system_monitor {
 
   /** Holds the supported terminal, history, and recording settings. */
   class Options {
-    var monitor: String = String("process");
-    var ui: String = String("terminal");
+    var monitor: String;
+    var ui: String;
     var port: i64 = 29583;
     var top: i64 = 10;
     var memory: bool = false;
@@ -14,9 +14,9 @@ public module system_monitor {
     var history: i64 = 600000;
     var graph_window: i64 = 60000;
     var budget: i64 = 67108864;
-    var record: String = String("");
-    var replay: String = String("");
-    var labels: String = String("");
+    var record: String;
+    var replay: String;
+    var labels: String;
     var samples: i64 = 0;
     var help: bool = false;
     var version: bool = false;
@@ -29,13 +29,13 @@ public module system_monitor {
             Error(1, "monitor must be process, disk, service, network, temperature, or menu")
           );
         }
-        this.monitor = value.clone(a);
+        this.monitor = try value.clone(a);
       } else if (key.equals_literal("--ui")) {
         if (not value.equals_literal("terminal") and not value.equals_literal("web") and
           not value.equals_literal("both")) {
           return Result.Error(Error(1, "ui must be terminal, web, or both"));
         }
-        this.ui = value.clone(a);
+        this.ui = try value.clone(a);
       } else if (key.equals_literal("--port")) {
         this.port = try bounded_integer(value, 1, 65535);
       } else if (key.equals_literal("--top")) {
@@ -49,15 +49,15 @@ public module system_monitor {
       } else if (key.equals_literal("--history")) {
         this.history = try parse_duration(value);
       } else if (key.equals_literal("--memory-limit")) {
-        this.budget = (try bounded_integer(value, 1, 4096)) * 1048576;
+        this.budget = try bounded_integer(value, 1, 4096) * 1048576;
       } else if (key.equals_literal("--samples")) {
         this.samples = try bounded_integer(value, 1, 2147483647);
       } else if (key.equals_literal("--record")) {
-        this.record = value.clone(a);
+        this.record = try value.clone(a);
       } else if (key.equals_literal("--replay")) {
-        this.replay = value.clone(a);
+        this.replay = try value.clone(a);
       } else if (key.equals_literal("--labels")) {
-        this.labels = value.clone(a);
+        this.labels = try value.clone(a);
       } else {
         return Result.Error(Error(1, "unknown option; see --help"));
       }
@@ -81,6 +81,15 @@ public module system_monitor {
 
       return Result.Ok;
     }
+
+    /** Initializes owned storage and reports allocation failure. */
+    init() std.AllocationResult<void> {
+      this.monitor = try String("process");
+      this.ui = try String("terminal");
+      this.record = try String("");
+      this.replay = try String("");
+      this.labels = try String("");
+    }
   }
 
   /** Parses an integer within a caller-supplied inclusive range. */
@@ -95,7 +104,7 @@ public module system_monitor {
   /** Converts a validated duration in seconds to milliseconds. */
   function parse_duration(value: ref String) Result<i64> {
     var seconds: f64 = 0.0;
-    match value.parse_f64() {
+    match try value.parse_f64() {
       Option.Some(n) => {
         seconds = n;
       },
@@ -132,11 +141,13 @@ public module system_monitor {
   function options(
     a: const ref HeapAllocator,
     argc: i32,
-    argv: raw_ptr<raw_ptr<u8>>
+    argv: raw_ptr<raw_ptr<i8>>
   ) Result<Options> {
-    var o = Options();
+    var o = try Options();
+    var env = try std.env.Env(a);
+    var args = try env.args(argc, argv);
     for (var i: i32 = 1; i < argc; i = i + 1) {
-      var key = from_c_str(a, unsafe { _load<raw_ptr<u8>>(argv, i); });
+      var key: const ref String = args[i];
       if (key.equals_literal("--help") or key.equals_literal("-h")) {
         o.help = true;
         continue;
@@ -149,7 +160,7 @@ public module system_monitor {
         return Result.Error(Error(1, "option requires a value; see --help"));
       }
       i = i + 1;
-      var value = from_c_str(a, unsafe { _load<raw_ptr<u8>>(argv, i); });
+      var value = try args[i].clone(a);
       if (value.is_empty()) {
         return Result.Error(Error(1, "option values must not be empty"));
       }
@@ -157,7 +168,7 @@ public module system_monitor {
     }
     // Preserve the old menu option as an alias for the default tab.
     if (o.monitor.equals_literal("menu")) {
-      o.monitor = String("process");
+      o.monitor = try String("process");
     }
     if (not o.monitor.equals_literal("process")) {
       if (not o.record.is_empty() or not o.replay.is_empty() or not o.labels.is_empty()) {

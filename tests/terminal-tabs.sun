@@ -21,7 +21,10 @@ public module system_monitor {
       terminal.selected_pid = 42;
       terminal.pending_signal = 9;
       terminal.apply_key(key, options);
-      try std.test.assert(options.monitor.equals(monitor_choice(key)), "number selects monitor");
+      try std.test.assert(
+        options.monitor.equals(try monitor_choice(key)),
+        "number selects monitor"
+      );
       try std.test.assert(
         not terminal.paused and not terminal.tabs_focused,
         "direct shortcut enters view"
@@ -101,15 +104,15 @@ public module system_monitor {
     var a = make_heap_allocator();
     var terminal = try Terminal(a, false);
     terminal.columns = 80;
-    var strip = String("");
-    try terminal.tabs(a, strip, String("process"));
+    var strip = try String("");
+    try terminal.tabs(a, strip, try String("process"));
     try std.test.assert(
       strip.contains("[1 Processes]") and strip.contains("5 Temperature"),
       "complete horizontal tabs"
     );
     terminal.columns = 40;
     strip.clear();
-    try terminal.tabs(a, strip, String("temperature"));
+    try terminal.tabs(a, strip, try String("temperature"));
     try std.test.assert(strip.contains("[5 T]"), "compact selected tab");
     try std.test.assert(strip.length() <= terminal.columns + 1, "one line plus CRLF");
     try std.test.assert(not strip.contains("\x1b"), "unstyled output");

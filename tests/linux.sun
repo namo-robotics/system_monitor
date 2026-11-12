@@ -10,7 +10,7 @@ public module system_monitor {
     test_function pidfd_supports_signal_probe() MonitorTestResult<void> {
       var a = make_heap_allocator();
       var f = try collect(a, 0);
-      var own = std.process.pid();
+      var own = pid();
       for (var i: i64 = 0; i < f.processes.size(); i = i + 1) {
         var p = try f.processes.get(i);
         if (p.pid == _convert<i64>(own)) {
@@ -26,9 +26,10 @@ public module system_monitor {
     /** Parses comm names containing spaces and closing parentheses. */
     test_function stat_names_do_not_shift_fields() MonitorTestResult<void> {
       var a = make_heap_allocator();
-      var text = String(
+      var text = try String(
         "42 (worker ) with spaces) S 0 0 0 0 0 0 0 0 0 0 100 20 0 0 0 0 0 0 4321 0 10"
       );
+
       var p = try parse_stat(a, text, 4096);
       try std.test.assert_eq(p.pid, 42i64);
       try std.test.assert_eq(p.start, 4321i64);
@@ -41,7 +42,7 @@ public module system_monitor {
     /** Rejects a truncated process record instead of inventing measurements. */
     test_function truncated_stat_is_rejected() MonitorTestResult<void> {
       var a = make_heap_allocator();
-      var bad = String("42 (short) S 0");
+      var bad = try String("42 (short) S 0");
       var rejected = match parse_stat(a, bad, 4096) {
         Result.Ok(value) => {
           var p = value;

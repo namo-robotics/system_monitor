@@ -4,7 +4,7 @@ public module system_monitor {
   using std;
 
   /** Builds a fixture with opposite CPU and memory rankings. */
-  function trend_fixture(a: const ref HeapAllocator) Frame {
+  function trend_fixture(a: const ref HeapAllocator) std.AllocationResult<Frame> {
     var frame = Frame(a);
     for (var pid: i64 = 1; pid <= 7; pid = pid + 1) {
       var process = Process();
@@ -12,17 +12,17 @@ public module system_monitor {
       process.start = 10;
       process.cpu = _convert<f64>(pid);
       process.rss = (8 - pid) * 1048576;
-      process.label = String("worker");
-      frame.processes.push(process);
+      process.label = try String("worker");
+      try frame.processes.push(process);
     }
-    return frame;
+    return std.AllocationResult.Ok(frame);
   }
 
   /** Uses the selected resource to choose exactly the current highest consumers. */
   test_function trend_selects_top_five_by_resource() MonitorTestResult<void> {
     var a = make_heap_allocator();
-    var frame = trend_fixture(a);
-    var graph = TrendGraph(a);
+    var frame = try trend_fixture(a);
+    var graph = try TrendGraph(a);
     try graph.select(a, frame, false);
     try std.test.assert_eq(graph.series.size(), 5i64);
     try std.test.assert_eq((try vector_read(graph.series, 0)).pid, 7i64);
@@ -37,8 +37,8 @@ public module system_monitor {
   /** Keeps a process's color through ranking changes and assigns distinct slots. */
   test_function trend_colors_follow_identity() MonitorTestResult<void> {
     var a = make_heap_allocator();
-    var frame = trend_fixture(a);
-    var graph = TrendGraph(a);
+    var frame = try trend_fixture(a);
+    var graph = try TrendGraph(a);
     try graph.select(a, frame, false);
     var color = match vector_read(graph.series, 0) {
       AccessResult.Ok(series) => series.color,
@@ -76,10 +76,10 @@ public module system_monitor {
   /** Encodes plotted dots without the old magnitude-character alphabet. */
   test_function canvas_encodes_dot_coordinates() MonitorTestResult<void> {
     var a = make_heap_allocator();
-    var canvas = DotCanvas(a, 1, 1);
+    var canvas = try DotCanvas(a, 1, 1);
     try canvas.point(0, 0, 0);
     try canvas.point(1, 3, 0);
-    var out = String("");
+    var out = try String("");
     try canvas.render_row(out, 0, false);
     try std.test.assert(out.equals_literal("⢁"), "Braille corner dots");
 
@@ -89,7 +89,7 @@ public module system_monitor {
   /** Breaks traces at unavailable samples instead of joining across gaps. */
   test_function trend_does_not_connect_missing_samples() MonitorTestResult<void> {
     var a = make_heap_allocator();
-    var history = History(a);
+    var history = try History(a);
     for (var i: i64 = 0; i < 3; i = i + 1) {
       var frame = Frame(a);
       frame.elapsed = i * 1000;
@@ -98,24 +98,24 @@ public module system_monitor {
       p.start = 10;
       p.cpu = 50.0;
       if (i != 1) {
-        frame.processes.push(p);
+        try frame.processes.push(p);
       }
       try history.add(frame);
     }
     var p = Process();
     p.pid = 7;
     p.start = 10;
-    var item = TrendSeries(a, p);
+    var item = try TrendSeries(a, p);
     item.color = 0;
-    var graph = TrendGraph(a);
+    var graph = try TrendGraph(a);
     graph.duration = 2000;
-    var canvas = DotCanvas(a, 20, 3);
+    var canvas = try DotCanvas(a, 20, 3);
     try graph.trace(canvas, history, item, false, 100.0);
     try std.test.assert_eq(try canvas.masks.get(1 * 20 + 10), 0i64);
-    var replacement = TrendSeries(a, p);
+    var replacement = try TrendSeries(a, p);
     replacement.start = 11;
     replacement.color = 1;
-    var empty = DotCanvas(a, 20, 3);
+    var empty = try DotCanvas(a, 20, 3);
     try graph.trace(empty, history, replacement, false, 100.0);
     for (var i: i64 = 0; i < 60; i = i + 1) {
       try std.test.assert_eq(try empty.masks.get(i), 0i64);
@@ -127,9 +127,9 @@ public module system_monitor {
   /** Grows across a fixed span, then scrolls without resetting after eviction. */
   test_function trend_window_grows_then_scrolls() MonitorTestResult<void> {
     var a = make_heap_allocator();
-    var history = History(a);
+    var history = try History(a);
     history.duration = 1000;
-    var graph = TrendGraph(a);
+    var graph = try TrendGraph(a);
     var first = Frame(a);
     first.elapsed = 5000;
     try history.add(first);
@@ -181,18 +181,18 @@ public module system_monitor {
   /** Leaves future columns blank and excludes peaks outside the visible span. */
   test_function trend_raster_respects_fixed_window() MonitorTestResult<void> {
     var a = make_heap_allocator();
-    var history = History(a);
-    var graph = TrendGraph(a);
+    var history = try History(a);
+    var graph = try TrendGraph(a);
     for (var i: i64 = 0; i < 2; i = i + 1) {
-      var frame = trend_fixture(a);
+      var frame = try trend_fixture(a);
       frame.elapsed = i * 30000;
       try graph.select(a, frame, false);
       try history.add(frame);
     }
-    var canvas = DotCanvas(a, 61, 1);
+    var canvas = try DotCanvas(a, 61, 1);
     try graph.trace(canvas, history, try vector_read(graph.series, 0), false, 7.0);
-    try std.test.assert((try canvas.masks.get(0)) != 0, "first sample at left");
-    try std.test.assert((try canvas.masks.get(30)) != 0, "latest sample halfway across");
+    try std.test.assert(try canvas.masks.get(0) != 0, "first sample at left");
+    try std.test.assert(try canvas.masks.get(30) != 0, "latest sample halfway across");
     for (var i: i64 = 31; i < 61; i = i + 1) {
       try std.test.assert_eq(try canvas.masks.get(i), 0i64);
     }
@@ -205,7 +205,7 @@ public module system_monitor {
         return MonitorTestResult.OutOfBounds(error);
       }
     };
-    var later = trend_fixture(a);
+    var later = try trend_fixture(a);
     later.elapsed = 90000;
     try history.add(later);
     try std.test.assert_eq(try graph.scale(history, false), 7.0);
@@ -217,7 +217,7 @@ public module system_monitor {
   test_function filled_columns_overlap_by_height() MonitorTestResult<void> {
     var a = make_heap_allocator();
     for (var order: i64 = 0; order < 2; order = order + 1) {
-      var canvas = DotCanvas(a, 2, 3);
+      var canvas = try DotCanvas(a, 2, 3);
       if (order == 0) {
         try canvas.column(0, 0, 0);
         try canvas.column(0, 8, 1);

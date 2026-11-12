@@ -11,20 +11,23 @@ public module system_monitor {
     var paused: bool = false;
     var help: bool = false;
     var finished: bool = false;
-    var selected: String = String("");
+    var selected: String;
     var selected_row: i64 = 0;
     var escape_state: i64 = 0;
     var tabs_focused: bool = false;
     var selected_pid: i64 = 0;
     var selected_start: i64 = 0;
     var pending_signal: i32 = 0;
-    var notice: String = String("");
+    var notice: String;
     var rows: i64 = 24;
     var columns: i64 = 80;
 
     /** Initializes owned state and resources for this object. */
     init(a: const ref HeapAllocator, enabled: bool) Result<void> {
-      this.trend = TrendGraph(a);
+      this.selected = try String("");
+      this.notice = try String("");
+
+      this.trend = try TrendGraph(a);
       this.saved = std.terminal.Termios();
       if (enabled and unsafe { pm_isatty(0); } == 1 and unsafe { pm_isatty(1); } == 1) {
         if (unsafe { pm_tcgetattr(0, this.saved); } != 0) {
@@ -43,8 +46,7 @@ public module system_monitor {
           return Result.Error(Error(1, "cannot set terminal mode"));
         }
         this.active = true;
-        var escape = String("\x1b[?1049h\x1b[?25l");
-        output(escape);
+        output("\x1b[?1049h\x1b[?25l");
       }
 
       return Result.Ok;
@@ -54,8 +56,7 @@ public module system_monitor {
     deinit() {
       if (this.active) {
         unsafe { pm_tcsetattr(0, 0, this.saved); };
-        var escape = String("\x1b[0m\x1b[?25h\x1b[?1049l");
-        output(escape);
+        output("\x1b[0m\x1b[?25h\x1b[?1049l");
       }
     }
 
@@ -67,24 +68,24 @@ public module system_monitor {
       var old_rows: i64 = this.rows;
       var old_columns: i64 = this.columns;
       try this.size(a);
-      var poller = std.io.Poller(a);
-      poller.add_read(0);
+      var poller = try std.io.Poller(a);
+      try poller.add_read(0);
       var events = try poller.wait(std.time.create_duration_millis(0));
       if (events.size() == 0) {
         return Result.Ok(old_rows != this.rows or old_columns != this.columns);
       }
       this.notice.clear();
-      var buffer = ContiguousBuffer<u8>(a, 32);
+      var buffer = try ContiguousBuffer<u8>(a, 32);
       var n = unsafe { pm_read(0, buffer.raw_data(), 32i64); };
       if (n == 0) {
         on_signal(0);
       }
       for (var i: i64 = 0; i < n; i = i + 1) {
-        this.apply_key(try buffer.get(i), o);
+        try this.apply_key(try buffer.get(i), o);
         try this.perform_action(a, o);
       }
       if (this.paused) {
-        var strip = String("\x1b[H\x1b[2K");
+        var strip = try String("\x1b[H\x1b[2K");
         try this.tabs(a, strip, o.monitor);
         output(strip);
       }
@@ -92,36 +93,36 @@ public module system_monitor {
     }
 
     /** Applies one terminal command to display state only. */
-    method apply_key(ch: u8, o: ref Options) void {
+    method apply_key(ch: u8, o: ref Options) std.AllocationResult<void> {
       if (this.arrow_key(ch, o)) {
-        return;
+        return std.AllocationResult.Ok;
       }
       if (ch == b'q' or ch == 3u8) {
         on_signal(0);
-        return;
+        return std.AllocationResult.Ok;
       }
       if (ch >= b'1' and ch <= b'5') {
-        this.select_tab(ch, o, false);
-        return;
+        try this.select_tab(ch, o, false);
+        return std.AllocationResult.Ok;
       }
       if (ch == 9u8) {
         this.tabs_focused = not this.tabs_focused;
-        return;
+        return std.AllocationResult.Ok;
       }
       if (ch == b'b') {
         this.tabs_focused = true;
-        return;
+        return std.AllocationResult.Ok;
       }
       if (ch == 13u8 or ch == 10u8) {
         this.tabs_focused = false;
-        return;
+        return std.AllocationResult.Ok;
       }
       if (ch == b' ') {
         this.paused = not this.paused;
-        return;
+        return std.AllocationResult.Ok;
       }
       if (this.tabs_focused or not o.monitor.equals_literal("process")) {
-        return;
+        return std.AllocationResult.Ok;
       }
       if (ch == b't') {
         this.pending_signal = 15;
@@ -140,11 +141,13 @@ public module system_monitor {
       } else if (ch == b'a') {
         o.top = 0;
       }
-    }
+    
+      return std.AllocationResult.Ok;
+}
 
     /** Changes monitors without carrying a process action or selection into the new view. */
-    method select_tab(ch: u8, o: ref Options, focused: bool) void {
-      o.monitor = monitor_choice(ch);
+    method select_tab(ch: u8, o: ref Options, focused: bool) std.AllocationResult<void> {
+      o.monitor = try monitor_choice(ch);
       this.tabs_focused = focused;
       this.selected_row = 0;
       this.selected.clear();
@@ -153,18 +156,21 @@ public module system_monitor {
       this.pending_signal = 0;
       this.notice.clear();
       this.paused = false;
+
+      return std.AllocationResult.Ok;
     }
 
     /** Draws the horizontal tab strip with separate selected and focused styling. */
     method tabs(a: const ref HeapAllocator, out: ref String, name: const ref String) Result<void> {
-      var labels = String("Processes|Disks|Services|Network|Temperature");
+      var labels = try String("Processes|Disks|Services|Network|Temperature");
+
       if (this.columns < 65) {
-        labels = String("Proc|Disk|Svc|Net|Temp");
+        labels = try String("Proc|Disk|Svc|Net|Temp");
       }
       if (this.columns < 43) {
-        labels = String("P|D|S|N|T");
+        labels = try String("P|D|S|N|T");
       }
-      var names = labels.split(a, b'|');
+      var names = try labels.split(a, b'|');
       var selected = monitor_index(name);
       var used: i64 = 0;
       var width = this.columns - 1;
@@ -175,42 +181,42 @@ public module system_monitor {
         if (this.columns < 17 and i != selected) {
           continue;
         }
-        var token = String("");
+        var token = try String("");
         if (used > 0) {
-          token.append(" ");
+          try token.append(" ");
         }
         if (i == selected) {
-          token.append("[");
+          try token.append("[");
         } else if (this.columns >= 30) {
-          token.append(" ");
+          try token.append(" ");
         }
-        token.append(i + 1);
+        try token.append(i + 1);
         if (this.columns >= 30) {
-          token.append(" ");
+          try token.append(" ");
         }
-        token.append(try names.get(i));
+        try token.append(try names.get(i));
         if (i == selected) {
-          token.append("]");
+          try token.append("]");
         } else if (this.columns >= 30) {
-          token.append(" ");
+          try token.append(" ");
         }
         if (this.active and i == selected) {
           if (this.tabs_focused) {
-            out.append("\x1b[1;30;103m");
+            try out.append("\x1b[1;30;103m");
           } else {
-            out.append("\x1b[1;97;44m");
+            try out.append("\x1b[1;97;44m");
           }
         }
-        out.append(try safe_text(a, token, width - used));
+        try out.append(try safe_text(a, token, width - used));
         if (this.active) {
-          out.append("\x1b[0m");
+          try out.append("\x1b[0m");
         }
         used = used + token.length();
         if (used >= width) {
           break;
         }
       }
-      out.append("\r\n");
+      try out.append("\r\n");
 
       return Result.Ok;
     }
@@ -226,15 +232,16 @@ public module system_monitor {
         return Result.Ok;
       }
       if (not o.replay.is_empty()) {
-        this.notice = String("Process actions are disabled during replay");
+        this.notice = try String("Process actions are disabled during replay");
       } else if (this.selected.is_empty() or this.selected_pid == 0) {
-        this.notice = String("Select a visible process before sending a signal");
+        this.notice = try String("Select a visible process before sending a signal");
       } else {
-        this.notice = control_process(a, this.selected_pid, this.selected_start, signal);
+        this.notice = try control_process(a, this.selected_pid, this.selected_start, signal);
       }
       if (this.active and this.paused) {
-        var message = String("\x1b[2;1H\x1b[2K");
-        message.append(try safe_text(a, this.notice, this.columns - 1));
+        var message = try String("\x1b[2;1H\x1b[2K");
+        try message.append(try safe_text(a, this.notice, this.columns - 1));
+
         output(message);
       }
 
@@ -242,16 +249,16 @@ public module system_monitor {
     }
 
     /** Decodes arrow sequences across reads and consumes other escape sequences. */
-    method arrow_key(ch: u8, o: ref Options) bool {
+    method arrow_key(ch: u8, o: ref Options) std.AllocationResult<bool> {
       if (ch == 27u8) {
         this.escape_state = 1;
-        return true;
+        return std.AllocationResult.Ok(true);
       }
       if (this.escape_state == 1) {
         this.escape_state = 0;
         if (ch == b'[' or ch == b'O') {
           this.escape_state = 2;
-          return true;
+          return std.AllocationResult.Ok(true);
         }
       } else if (this.escape_state == 2) {
         if (ch >= 64u8 and ch <= 126u8) {
@@ -264,7 +271,7 @@ public module system_monitor {
               } else {
                 index = (index + 4) % 5;
               }
-              this.select_tab(_convert<u8>(index) + b'1', o, true);
+              try this.select_tab(_convert<u8>(index) + b'1', o, true);
             } else if (ch == b'B') {
               this.tabs_focused = false;
             }
@@ -274,9 +281,9 @@ public module system_monitor {
             this.move_selection(ch == b'B');
           }
         }
-        return true;
+        return std.AllocationResult.Ok(true);
       }
-      return false;
+      return std.AllocationResult.Ok(false);
     }
 
     /** Moves the highlighted row while keeping the upper boundary in range. */
@@ -291,7 +298,7 @@ public module system_monitor {
 
     /** Refreshes the cached terminal dimensions. */
     method size(a: const ref HeapAllocator) Result<void> {
-      var b = ContiguousBuffer<u16>(a, 4);
+      var b = try ContiguousBuffer<u16>(a, 4);
       b.fill(0);
       var request: u64 = 21523;
       if (_target_is("macos")) {
@@ -316,18 +323,19 @@ public module system_monitor {
         return Result.Ok;
       }
       try this.size(a);
-      var out = String("");
+      var out = try String("");
       if (this.active) {
-        out.append("\x1b[H\x1b[2J");
+        try out.append("\x1b[H\x1b[2J");
         try this.tabs(a, out, o.monitor);
       }
       if (this.active and (this.columns < 65 or this.rows < 18)) {
-        var message = String("Enlarge terminal to 65 columns and 18 rows. q quits.");
+        var message = try String("Enlarge terminal to 65 columns and 18 rows. q quits.");
+
         var width = this.columns - 1;
         if (width < 1) {
           width = 1;
         }
-        out.append(try safe_text(a, message, width));
+        try out.append(try safe_text(a, message, width));
         output(out);
         return Result.Ok;
       }
@@ -350,31 +358,33 @@ public module system_monitor {
       history: ref History
     ) Result<void> {
       var style = TableStyle(this.columns, this.active);
-      var title = String("PROCESS MONITOR  |  ");
-      title.append(frame.processes.size());
-      title.append(" processes  |  history ");
-      title.append((try history.window()) / 1000);
-      title.append("s  |  skipped ");
-      title.append(frame.inaccessible);
+      var title = try String("PROCESS MONITOR  |  ");
+      try title.append(frame.processes.size());
+      try title.append(" processes  |  history ");
+      try title.append(try history.window() / 1000);
+      try title.append("s  |  skipped ");
+      try title.append(frame.inaccessible);
       if (this.finished) {
-        title.append("  |  REPLAY COMPLETE");
+        try title.append("  |  REPLAY COMPLETE");
       }
       if (not this.notice.is_empty()) {
-        title = this.notice.clone(a);
+        title = try this.notice.clone(a);
       }
-      style.color(out, "\x1b[1;36m");
-      out.append(try safe_text(a, title, style.width));
-      style.color(out, "\x1b[0m");
-      out.append("\r\n");
-      var hint = String("1-5 tabs  Tab focus  c/m sort  t/k signal  ? help  q quit");
+      try style.color(out, "\x1b[1;36m");
+      try out.append(try safe_text(a, title, style.width));
+      try style.color(out, "\x1b[0m");
+      try out.append("\r\n");
+      var hint = try String("1-5 tabs  Tab focus  c/m sort  t/k signal  ? help  q quit");
+
       if (this.tabs_focused) {
-        hint = String("TABS: Left/Right choose  Down/Enter view  1-5 jump  q quit");
+        hint = try String("TABS: Left/Right choose  Down/Enter view  1-5 jump  q quit");
       }
-      out.append(try safe_text(a, hint, style.width));
-      out.append("\r\n");
+      try out.append(try safe_text(a, hint, style.width));
+      try out.append("\r\n");
       if (this.help and this.rows >= 21) {
-        out.append("CPU: 100% = one core. Memory: resident MiB. N/A = unavailable.\r\n");
-        out.append("f/0/a top 5/10/all. Up from first row focuses tabs. Space pauses.\r\n");
+        try out.append("CPU: 100% = one core. Memory: resident MiB. N/A = unavailable.\r\n");
+
+        try out.append("f/0/a top 5/10/all. Up from first row focuses tabs. Space pauses.\r\n");
       }
 
       return Result.Ok;
@@ -391,11 +401,11 @@ public module system_monitor {
         this.selected_row = 0;
       }
       if (this.selected.is_empty() and count > 0) {
-        this.selected = (try frame.processes.get(try order.get(this.selected_row))).id();
+        this.selected = try (try frame.processes.get(try order.get(this.selected_row))).id();
         return Result.Ok;
       }
       for (var i: i64 = 0; i < count; i = i + 1) {
-        var id = (try frame.processes.get(try order.get(i))).id();
+        var id = try (try frame.processes.get(try order.get(i))).id();
         if (id.equals(this.selected)) {
           this.selected_row = i;
           return Result.Ok;
@@ -435,13 +445,13 @@ public module system_monitor {
         first = this.selected_row - visible + 1;
       }
       var style = TableStyle(this.columns, this.active);
-      style.rule(out, 0, true);
+      try style.rule(out, 0, true);
       try this.headings(a, out, style, o.memory);
-      style.rule(out, 1, true);
+      try style.rule(out, 1, true);
       for (var i = first; i < count and i < first + visible; i = i + 1) {
         try this.row(a, out, try frame.processes.get(try order.get(i)));
       }
-      style.rule(out, 2, true);
+      try style.rule(out, 2, true);
 
       return Result.Ok;
     }
@@ -453,19 +463,19 @@ public module system_monitor {
       style: ref TableStyle,
       memory: bool
     ) Result<void> {
-      style.edge(out, "│", "|");
-      var names = String("PID|NAME|CPU %|MEM %|RSS MiB");
+      try style.edge(out, "│", "|");
+      var names = try String("PID|NAME|CPU %|MEM %|RSS MiB");
       if (memory) {
-        names = String("PID|NAME|CPU %|MEM %|RSS MiB *");
+        names = try String("PID|NAME|CPU %|MEM %|RSS MiB *");
       } else {
-        names = String("PID|NAME|CPU % *|MEM %|RSS MiB");
+        names = try String("PID|NAME|CPU % *|MEM %|RSS MiB");
       }
-      var headers = names.split(a, b'|');
+      var headers = try names.split(a, b'|');
       for (var col: i64 = 0; col < 5; col = col + 1) {
-        style.color(out, "\x1b[1;36m");
+        try style.color(out, "\x1b[1;36m");
         try style.cell(a, out, try headers.get(col), (style.column(col)), col != 1, false);
       }
-      out.append("\r\n");
+      try out.append("\r\n");
 
       return Result.Ok;
     }
@@ -473,30 +483,31 @@ public module system_monitor {
     /** Formats aligned resource columns and highlights the selected identity. */
     method row(a: const ref HeapAllocator, out: ref String, p: ref Process) Result<void> {
       var style = TableStyle(this.columns, this.active);
-      var id = p.id();
+      var id = try p.id();
       var selected = id.equals(this.selected) and not this.tabs_focused;
-      var pid = String("");
+      var pid = try String("");
       if (selected) {
         this.selected_pid = p.pid;
         this.selected_start = p.start;
-        pid.append("> ");
+        try pid.append("> ");
       }
-      pid.append(p.pid);
+      try pid.append(p.pid);
       var rss: f64 = -1.0;
       if (p.rss >= 0) {
         rss = _convert<f64>(p.rss) / 1048576.0;
       }
-      var cells = Vec<String>(a, 5);
-      cells.push(pid);
-      cells.push(p.label.clone(a));
-      cells.push(decimal(p.cpu));
-      cells.push(decimal(p.memory));
-      cells.push(decimal(rss));
-      style.edge(out, "│", "|");
+      var cells = try Vec<String>(a, 5);
+      try cells.push(pid);
+      try cells.push(try p.label.clone(a));
+
+      try cells.push(try decimal(p.cpu));
+      try cells.push(try decimal(p.memory));
+      try cells.push(try decimal(rss));
+      try style.edge(out, "│", "|");
       for (var col: i64 = 0; col < 5; col = col + 1) {
         try style.cell(a, out, try cells.get(col), (style.column(col)), col != 1, selected);
       }
-      out.append("\r\n");
+      try out.append("\r\n");
 
       return Result.Ok;
     }

@@ -4,70 +4,85 @@ public module system_monitor {
   using std;
 
   /** Serializes one process with nulls for unavailable measurements. */
-  function process_json(a: ref HeapAllocator, p: ref Process) Result<Json> {
-    var j = create_json_object(a);
-    try j.set(String("id"), Json(p.id()));
-    try j.set(String("pid"), Json(p.pid));
+  function process_json(a: ref HeapAllocator, p: ref Process) Result<std.json.Json> {
+    var j = try std.json.create_json_object(a);
+    try j.set(try String("id"), std.json.Json(try p.id()));
+    try j.set(try String("pid"), std.json.Json(p.pid));
     // Start identifiers are strings to preserve precision in browsers.
-    var start = String("");
-    start.append(p.start);
-    try j.set(String("start"), Json(start));
-    try j.set(String("exe"), create_json_string(a, p.exe));
-    try j.set(String("label"), create_json_string(a, p.label));
+    var start = try String("");
+    try start.append(p.start);
+    try j.set(try String("start"), std.json.Json(start));
+    try j.set(
+      try String("exe"),
+      try std.json.create_json_string(a, p.exe)
+    );
+    try j.set(
+      try String("label"),
+      try std.json.create_json_string(a, p.label)
+    );
     if (p.cpu < 0.0) {
-      try j.set(String("cpu"), Json());
+      try j.set(try String("cpu"), std.json.Json());
     } else {
-      try j.set(String("cpu"), Json(p.cpu));
+      try j.set(try String("cpu"), std.json.Json(p.cpu));
     }
     if (p.rss < 0) {
-      try j.set(String("rss"), Json());
+      try j.set(try String("rss"), std.json.Json());
     } else {
-      try j.set(String("rss"), Json(p.rss));
+      try j.set(try String("rss"), std.json.Json(p.rss));
     }
     if (p.memory < 0.0) {
-      try j.set(String("memory"), Json());
+      try j.set(try String("memory"), std.json.Json());
     } else {
-      try j.set(String("memory"), Json(p.memory));
+      try j.set(try String("memory"), std.json.Json(p.memory));
     }
     return Result.Ok(j);
   }
 
   /** Serializes one complete sample independently of display filters. */
-  function frame_json(a: ref HeapAllocator, f: ref Frame) Result<Json> {
-    var j = create_json_object(a);
-    var rows = create_json_array(a);
-    try j.set(String("version"), Json(1i64));
-    try j.set(String("type"), Json(String("sample")));
-    try j.set(String("timestamp"), Json(f.timestamp));
-    try j.set(String("elapsed_ms"), Json(f.elapsed));
-    try j.set(String("total_memory"), Json(f.total_memory));
-    try j.set(String("inaccessible"), Json(f.inaccessible));
+  function frame_json(a: ref HeapAllocator, f: ref Frame) Result<std.json.Json> {
+    var j = try std.json.create_json_object(a);
+    var rows = try std.json.create_json_array(a);
+    try j.set(try String("version"), std.json.Json(1i64));
+    try j.set(
+      try String("type"),
+      std.json.Json(try String("sample"))
+    );
+    try j.set(try String("timestamp"), std.json.Json(f.timestamp));
+    try j.set(try String("elapsed_ms"), std.json.Json(f.elapsed));
+    try j.set(
+      try String("total_memory"),
+      std.json.Json(f.total_memory)
+    );
+    try j.set(
+      try String("inaccessible"),
+      std.json.Json(f.inaccessible)
+    );
     for (var i: i64 = 0; i < f.processes.size(); i = i + 1) {
       try rows.push(try process_json(a, try f.processes.get(i)));
     }
-    try j.set(String("processes"), rows);
+    try j.set(try String("processes"), rows);
     return Result.Ok(j);
   }
 
   /** Validates and decodes one versioned recording sample. */
-  function decode_frame(a: ref HeapAllocator, j: ref Json) Result<Frame> {
+  function decode_frame(a: ref HeapAllocator, j: ref std.json.Json) Result<Frame> {
     if (try (try j.get("version")).as_i64() != 1 or
       not ((try (try j.get("type")).as_string()).equals_literal("sample"))) {
       return Result.Error(Error(1, "unsupported recording sample"));
     }
-    var f = Frame(a);
+    var f = try Frame(a);
     f.timestamp = try (try j.get("timestamp")).as_i64();
     f.elapsed = try (try j.get("elapsed_ms")).as_i64();
     f.total_memory = try (try j.get("total_memory")).as_i64();
     f.inaccessible = try (try j.get("inaccessible")).as_i64();
-    var rows: ref Json = try j.get("processes");
+    var rows: ref std.json.Json = try j.get("processes");
     for (var i: i64 = 0; i < rows.len(); i = i + 1) {
-      var row: ref Json = try rows.at(i);
-      var p = Process();
+      var row: ref std.json.Json = try rows.at(i);
+      var p = try Process();
       p.pid = try (try row.get("pid")).as_i64();
       p.start = try number(try (try row.get("start")).as_string());
-      p.exe = (try (try row.get("exe")).as_string()).clone(a);
-      p.label = (try (try row.get("label")).as_string()).clone(a);
+      p.exe = try (try (try row.get("exe")).as_string()).clone(a);
+      p.label = try (try (try row.get("label")).as_string()).clone(a);
       if (not (try row.get("cpu")).is_null()) {
         p.cpu = try (try row.get("cpu")).as_f64();
       }
@@ -77,7 +92,7 @@ public module system_monitor {
       if (not (try row.get("memory")).is_null()) {
         p.memory = try (try row.get("memory")).as_f64();
       }
-      f.processes.push(p);
+      try f.processes.push(p);
     }
     return Result.Ok(f);
   }

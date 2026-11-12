@@ -11,9 +11,9 @@ public module system_monitor {
 
   /** Loads the installed HTML resource relative to the running executable. */
   function load_dashboard(a: ref HeapAllocator) Result<String> {
-    var buffer = ContiguousBuffer<u8>(a, 4096);
-    var executable = String("/proc/self/exe");
-    var size = unsafe { pm_readlink(executable.c_str(), buffer.raw_data(), 4096i64); };
+    var buffer = try ContiguousBuffer<u8>(a, 4096);
+    var executable = try String("/proc/self/exe");
+    var size = unsafe { pm_readlink(try executable.c_str(), buffer.raw_data(), 4096i64); };
     if (size <= 0 or size >= 4096) {
       return Result.Error(Error(1, "cannot locate the dashboard executable"));
     }
@@ -21,15 +21,17 @@ public module system_monitor {
     match path.rfind_char(b'/') {
       Option.Some(index) => {
         var directory = try path.substr(a, 0, index);
-        var resource = directory.clone(a);
-        resource.append("/../share/system_monitor/dashboard.html");
+        var resource = try directory.clone(a);
+        try resource.append("/../share/system_monitor/dashboard.html");
+
         match std.io.read_to_string(a, resource) {
           SystemResult.Ok(value) => {
             return Result.Ok(value);
           },
           (e: const ref IError) => {
-            resource = directory.clone(a);
-            resource.append("/share/system_monitor/dashboard.html");
+            resource = try directory.clone(a);
+            try resource.append("/share/system_monitor/dashboard.html");
+
             return Result.Ok(try std.io.read_to_string(a, resource));
           }
         };
@@ -38,16 +40,25 @@ public module system_monitor {
         return Result.Error(Error(1, "cannot locate the dashboard directory"));
       }
     };
-    return Result.Ok(String(""));
+    return Result.Ok(try String(""));
   }
 
   /** Holds serialized samples independently of the collector and its history. */
   class Publication {
-    var html: String = String("");
-    var snapshot: String = String("null");
-    var history: String = String("[]");
-    var status: String = String("{}");
-    var resources: String = String("{}");
+    var html: String;
+    var snapshot: String;
+    var history: String;
+    var status: String;
+    var resources: String;
+
+    /** Initializes owned storage and reports allocation failure. */
+    init() std.AllocationResult<void> {
+      this.html = try String("");
+      this.snapshot = try String("null");
+      this.history = try String("[]");
+      this.status = try String("{}");
+      this.resources = try String("{}");
+    }
   }
 
   /** Serves immutable copies of the latest publication to browser clients. */
@@ -60,27 +71,37 @@ public module system_monitor {
     }
 
     /** Routes read-only requests and contains parsing failures. */
-    public method handle(req: const ref Request, resp: ref Response) void {
-      resp.add_header("Cache-Control", "no-store");
-      resp.add_header("X-Content-Type-Options", "nosniff");
+    public method handle_result(req: const ref Request, resp: ref Response) std.AllocationResult<void> {
+      try resp.add_header("Cache-Control", "no-store");
+      try resp.add_header("X-Content-Type-Options", "nosniff");
       if (not req.method_is("GET") and not req.method_is("HEAD")) {
         resp.set_status(405);
-        resp.add_header("Allow", "GET, HEAD");
-        return;
+        try resp.add_header("Allow", "GET, HEAD");
+        return std.AllocationResult.Ok;
       }
       if (req.path_is("/")) {
-        resp.set_content_type("text/html; charset=utf-8");
+        try resp.set_content_type("text/html; charset=utf-8");
         var guard = this.state.lock();
-        resp.set_body_string(guard.get().html);
-        return;
+        try resp.set_body_string(guard.get().html);
+        return std.AllocationResult.Ok;
       }
-      resp.set_content_type("application/json");
+      try resp.set_content_type("application/json");
       match this.api(req, resp) {
         Result.Ok => {},
         (e: const ref IError) => {
           resp.set_status(400);
-          resp.set_body("{\"error\":\"invalid history identity\"}");
+          try resp.set_body("{\"error\":\"invalid history identity\"}");
         }
+      };
+
+      return std.AllocationResult.Ok;
+    }
+
+    /** Runs the callback and terminates if its response storage cannot be allocated. */
+    public method handle(req: const ref Request, resp: ref Response) void {
+      match this.handle_result(req, resp) {
+        std.AllocationResult.Ok => {},
+        _ => { _panic("allocation failed in server callback"); }
       };
     }
 
@@ -94,30 +115,33 @@ public module system_monitor {
         resp.set_body("{\"error\":\"not found\"}");
         return Result.Ok;
       }
-      var text = (this.read(a, req));
+      var text = try (this.read(a, req));
       if (req.path_is("/api/v1/history")) {
-        match req.query_param("id", a) {
+        match try req.query_param("id", a) {
           Option.Some(id) => {
-            var parts = id.split(a, b':');
+            var parts = try id.split(a, b':');
             if (parts.size() != 2 or (try number(try parts.get(0))) < 0 or
               (try number(try parts.get(1))) < 0) {
               return Result.Error(Error(1, "invalid identity"));
             }
-            var frames = try parse_json(a, text);
-            var points = create_json_array(a);
+            var frames = try std.json.parse_json(a, text);
+            var points = try std.json.create_json_array(a);
             for (var i: i64 = 0; i < frames.len(); i = i + 1) {
-              var frame: ref Json = try frames.at(i);
-              var point = create_json_object(a);
+              var frame: ref std.json.Json = try frames.at(i);
+              var point = try std.json.create_json_object(a);
               try point.set(
-                String("elapsed_ms"),
-                Json(try (try frame.get("elapsed_ms")).as_i64())
+                try String("elapsed_ms"),
+                std.json.Json(try (try frame.get("elapsed_ms")).as_i64())
               );
-              var rows: ref Json = try frame.get("processes");
-              try point.set(String("process"), Json());
+              var rows: ref std.json.Json = try frame.get("processes");
+              try point.set(try String("process"), std.json.Json());
               for (var j: i64 = 0; j < rows.len(); j = j + 1) {
                 if ((try (try (try rows.at(j)).get("id")).as_string()).equals(id)) {
-                  var row = (try rows.at(j)).to_string(a);
-                  try point.set(String("process"), try parse_json(a, row));
+                  var row = try (try rows.at(j)).to_string(a);
+                  try point.set(
+                    try String("process"),
+                    try std.json.parse_json(a, row)
+                  );
                 }
               }
               try points.push(point);
@@ -134,28 +158,28 @@ public module system_monitor {
     }
 
     /** Reads one consistent publication without borrowing collector state. */
-    method read(a: const ref HeapAllocator, req: const ref Request) String {
+    method read(a: const ref HeapAllocator, req: const ref Request) std.AllocationResult<String> {
       var guard = this.state.lock();
       if (req.path_is("/api/v1/resources")) {
-        return guard.get().resources.clone(a);
+        return std.AllocationResult.Ok(try guard.get().resources.clone(a));
       }
       if (req.path_is("/api/v1/snapshot")) {
-        return guard.get().snapshot.clone(a);
+        return std.AllocationResult.Ok(try guard.get().snapshot.clone(a));
       }
       if (req.path_is("/api/v1/status")) {
-        return guard.get().status.clone(a);
+        return std.AllocationResult.Ok(try guard.get().status.clone(a));
       }
       if (req.path_is("/api/v1/history")) {
-        return guard.get().history.clone(a);
+        return std.AllocationResult.Ok(try guard.get().history.clone(a));
       }
-      var text = String("{\"snapshot\":");
-      text.append(guard.get().snapshot);
-      text.append(",\"history\":");
-      text.append(guard.get().history);
-      text.append(",\"status\":");
-      text.append(guard.get().status);
-      text.append("}");
-      return text;
+      var text = try String("{\"snapshot\":");
+      try text.append(guard.get().snapshot);
+      try text.append(",\"history\":");
+      try text.append(guard.get().history);
+      try text.append(",\"status\":");
+      try text.append(guard.get().status);
+      try text.append("}");
+      return std.AllocationResult.Ok(text);
     }
 
     /** Rejects websocket upgrades; the dashboard polls complete snapshots. */
@@ -178,16 +202,27 @@ public module system_monitor {
   }
 
   /** Serializes typed measurements and availability messages for browser tables and charts. */
-  function resource_json(a: ref HeapAllocator, resource: ref Resources) Result<Json> {
-    var view = create_json_object(a);
-    var lines = create_json_array(a);
+  function resource_json(a: ref HeapAllocator, resource: ref Resources) Result<std.json.Json> {
+    var view = try std.json.create_json_object(a);
+    var lines = try std.json.create_json_array(a);
     for (var i: i64 = 0; i < resource.lines.size(); i = i + 1) {
-      try lines.push(Json((try resource.lines.get(i)).clone(a)));
+      try lines.push(
+        std.json.Json(try (try resource.lines.get(i)).clone(a))
+      );
     }
-    try view.set(String("lines"), lines);
-    try view.set(String("rows"), try parse_json(a, resource.rows.to_string(a)));
-    try view.set(String("message"), create_json_string(a, resource.message));
-    try view.set(String("samples"), Json(resource.samples));
+    try view.set(try String("lines"), lines);
+    try view.set(
+      try String("rows"),
+      try std.json.parse_json(a, resource.rows.to_string(a))
+    );
+    try view.set(
+      try String("message"),
+      try std.json.create_json_string(a, resource.message)
+    );
+    try view.set(
+      try String("samples"),
+      std.json.Json(resource.samples)
+    );
     return Result.Ok(view);
   }
 
@@ -208,11 +243,11 @@ public module system_monitor {
       if (options.interval > this.resource_interval) {
         this.resource_interval = options.interval;
       }
-      this.disk = Resources(a);
-      this.service = Resources(a);
-      this.network = Resources(a);
-      this.temperature = Resources(a);
-      this.state = Shared<Publication>(a, Publication());
+      this.disk = try Resources(a);
+      this.service = try Resources(a);
+      this.network = try Resources(a);
+      this.temperature = try Resources(a);
+      this.state = try Shared<Publication>(a, Publication());
       this.enabled = not options.ui.equals_literal("terminal");
       if (not this.enabled) {
         return Result.Ok;
@@ -223,27 +258,32 @@ public module system_monitor {
         guard.get().html = html;
       }
       var cfg = Config(a);
-      cfg.add_listen(ipv4_loopback(), _convert<i32>(options.port));
+      try cfg.add_listen(std.net.ipv4_loopback(), _convert<i32>(options.port));
       cfg.access_log = false;
       cfg.timeouts.drain_ms = 1000;
-      var handlers = Vec<DashboardHandler>(a, 1);
-      handlers.push(DashboardHandler(this.state.clone()));
+      var handlers = try Vec<DashboardHandler>(a, 1);
+      try handlers.push(DashboardHandler(try this.state.clone()));
+
       var server = match Server<DashboardHandler>(a, cfg, handlers) {
         ServerResult.Ok(value) => value,
         (error: const ref IError) => {
-          return Result.Error(Error(error.code(), error.message()));
+          return Result.Error(
+            try Error(error.code(), try error.message())
+          );
         }
       };
       match server.start() {
         ServerResult.Ok => {},
         (error: const ref IError) => {
-          return Result.Error(Error(error.code(), error.message()));
+          return Result.Error(
+            try Error(error.code(), try error.message())
+          );
         }
       };
       this.server = Option.Some(server);
-      var message = String("Web dashboard: http://127.0.0.1:");
-      message.append(options.port);
-      eprintln(message);
+      var message = try String("Web dashboard: http://127.0.0.1:");
+      try message.append(options.port);
+      std.io.eprintln(message);
 
       return Result.Ok;
     }
@@ -254,20 +294,41 @@ public module system_monitor {
         return Result.Ok;
       }
       var snapshot = (try frame_json(a, session.previous)).to_string(a);
-      var frames = create_json_array(a);
+      var frames = try std.json.create_json_array(a);
       for (var i: i64 = 0; i < session.history.frames.size(); i = i + 1) {
         try frames.push(try frame_json(a, try session.history.frames.get(i)));
       }
       var history = frames.to_string(a);
-      var status = create_json_object(a);
-      try status.set(String("version"), Json(1i64));
-      try status.set(String("replay"), Json(not session.options.replay.is_empty()));
-      try status.set(String("finished"), Json(session.finished));
-      try status.set(String("history_ms"), Json(try session.history.window()));
-      try status.set(String("evicted"), Json(session.history.evicted));
-      try status.set(String("graph_window_ms"), Json(session.options.graph_window));
-      try status.set(String("top"), Json(session.options.top));
-      try status.set(String("memory"), Json(session.options.memory));
+      var status = try std.json.create_json_object(a);
+      try status.set(try String("version"), std.json.Json(1i64));
+      try status.set(
+        try String("replay"),
+        std.json.Json(not session.options.replay.is_empty())
+      );
+      try status.set(
+        try String("finished"),
+        std.json.Json(session.finished)
+      );
+      try status.set(
+        try String("history_ms"),
+        std.json.Json(try session.history.window())
+      );
+      try status.set(
+        try String("evicted"),
+        std.json.Json(session.history.evicted)
+      );
+      try status.set(
+        try String("graph_window_ms"),
+        std.json.Json(session.options.graph_window)
+      );
+      try status.set(
+        try String("top"),
+        std.json.Json(session.options.top)
+      );
+      try status.set(
+        try String("memory"),
+        std.json.Json(session.options.memory)
+      );
       var text = status.to_string(a);
       var guard = this.state.lock();
       guard.get().snapshot = snapshot;
@@ -282,19 +343,37 @@ public module system_monitor {
       if (not this.enabled or now < this.resources_due) {
         return Result.Ok;
       }
-      (this.disk.sample(a, String("disk"), now));
-      (this.service.sample(a, String("service"), now));
-      (this.network.sample(a, String("network"), now));
-      (this.temperature.sample(a, String("temperature"), now));
-      var views = create_json_object(a);
-      try views.set(String("disk"), try resource_json(a, this.disk));
-      try views.set(String("service"), try resource_json(a, this.service));
-      try views.set(String("network"), try resource_json(a, this.network));
-      try views.set(String("temperature"), try resource_json(a, this.temperature));
-      var publication = create_json_object(a);
-      try publication.set(String("monitors"), views);
-      try publication.set(String("interval_ms"), Json(this.resource_interval));
-      try publication.set(String("timestamp_ms"), Json(std.time.read_unix_time_millis()));
+      (this.disk.sample(a, try String("disk"), now));
+      (this.service.sample(a, try String("service"), now));
+      (this.network.sample(a, try String("network"), now));
+      (this.temperature.sample(a, try String("temperature"), now));
+      var views = try std.json.create_json_object(a);
+      try views.set(
+        try String("disk"),
+        try resource_json(a, this.disk)
+      );
+      try views.set(
+        try String("service"),
+        try resource_json(a, this.service)
+      );
+      try views.set(
+        try String("network"),
+        try resource_json(a, this.network)
+      );
+      try views.set(
+        try String("temperature"),
+        try resource_json(a, this.temperature)
+      );
+      var publication = try std.json.create_json_object(a);
+      try publication.set(try String("monitors"), views);
+      try publication.set(
+        try String("interval_ms"),
+        std.json.Json(this.resource_interval)
+      );
+      try publication.set(
+        try String("timestamp_ms"),
+        std.json.Json(std.time.read_unix_time_millis())
+      );
       var text = publication.to_string(a);
       var guard = this.state.lock();
       guard.get().resources = text;

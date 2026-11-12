@@ -4,17 +4,19 @@ public module system_monitor {
   using std;
 
   /** Describes the compact columns used by each resource table. */
-  function resource_columns(name: const ref String) String {
+  function resource_columns(name: const ref String) std.AllocationResult<String> {
     if (name.equals_literal("disk")) {
-      return String("Mount|Used GiB|Free GiB|Use %");
+      return std.AllocationResult.Ok(try String("Mount|Used GiB|Free GiB|Use %"));
     }
     if (name.equals_literal("service")) {
-      return String("Unit|Load|State|Substate");
+      return std.AllocationResult.Ok(try String("Unit|Load|State|Substate"));
     }
     if (name.equals_literal("network")) {
-      return String("Interface|State|RX KiB/s|TX KiB/s|Errs|Drops");
+      return std.AllocationResult.Ok(
+        try String("Interface|State|RX KiB/s|TX KiB/s|Errs|Drops")
+      );
     }
-    return String("Sensor|Celsius|Critical|Status");
+    return std.AllocationResult.Ok(try String("Sensor|Celsius|Critical|Status"));
   }
 
   /** Assigns spare horizontal space to the resource identity. */
@@ -38,42 +40,58 @@ public module system_monitor {
   }
 
   /** Formats a nullable measurement in the requested display units. */
-  function resource_number(row: ref Json, key: String, divisor: f64) Result<String> {
-    var value: ref Json = try row.get(key);
+  function resource_number(row: ref std.json.Json, key: String, divisor: f64) Result<String> {
+    var value: ref std.json.Json = try row.get(key);
     if (not value.is_number()) {
-      return Result.Ok(String("N/A"));
+      return Result.Ok(try String("N/A"));
     }
-    return Result.Ok(resource_decimal((try value.as_f64()) / divisor));
+    return Result.Ok(try resource_decimal(try value.as_f64() / divisor));
   }
 
   /** Extracts one table cell without depending on preformatted collector output. */
   function resource_cell(
     a: const ref HeapAllocator,
     name: const ref String,
-    row: ref Json,
+    row: ref std.json.Json,
     index: i64
   ) Result<String> {
     if (name.equals_literal("disk")) {
       if (index == 0) {
-        return Result.Ok((try (try row.get("mount")).as_string()).clone(a));
+        return Result.Ok(
+          try (try (try row.get("mount")).as_string()).clone(a)
+        );
       }
       if (index == 1) {
-        return Result.Ok(try resource_number(row, String("used_bytes"), 1073741824.0));
+        return Result.Ok(
+          try resource_number(
+            row,
+            try String("used_bytes"),
+            1073741824.0
+          )
+        );
       }
       if (index == 2) {
-        return Result.Ok(try resource_number(row, String("available_bytes"), 1073741824.0));
+        return Result.Ok(
+          try resource_number(
+            row,
+            try String("available_bytes"),
+            1073741824.0
+          )
+        );
       }
-      return Result.Ok(try resource_number(row, String("used_percent"), 1.0));
+      return Result.Ok(
+        try resource_number(row, try String("used_percent"), 1.0)
+      );
     }
-    var keys = String("sensor|celsius|critical_celsius|status");
+    var keys = try String("sensor|celsius|critical_celsius|status");
     if (name.equals_literal("service")) {
-      keys = String("unit|load|active|sub");
+      keys = try String("unit|load|active|sub");
     }
     if (name.equals_literal("network")) {
-      keys = String("interface|state|rx_bytes_per_sec|tx_bytes_per_sec|errors|drops");
+      keys = try String("interface|state|rx_bytes_per_sec|tx_bytes_per_sec|errors|drops");
     }
-    var fields = keys.split(a, b'|');
-    var key = (try fields.get(index)).clone(a);
+    var fields = try keys.split(a, b'|');
+    var key = try (try fields.get(index)).clone(a);
     if (name.equals_literal("network") and index >= 2) {
       var divisor = 1.0;
       if (index < 4) {
@@ -84,7 +102,9 @@ public module system_monitor {
     if (name.equals_literal("temperature") and (index == 1 or index == 2)) {
       return Result.Ok(try resource_number(row, key, 1.0));
     }
-    return Result.Ok((try (try row.get(key)).as_string()).clone(a));
+    return Result.Ok(
+      try (try (try row.get(key)).as_string()).clone(a)
+    );
   }
 
   /** Owns graph history while collectors refresh or change tabs. */
@@ -92,8 +112,8 @@ public module system_monitor {
     var history: ResourceHistory;
 
     /** Creates an empty set of terminal chart measurements. */
-    init(a: const ref HeapAllocator) {
-      this.history = ResourceHistory(a);
+    init(a: const ref HeapAllocator) std.AllocationResult<void> {
+      this.history = try ResourceHistory(a);
     }
 
     /** Preserves the selected resource across reordered snapshots. */
@@ -115,7 +135,7 @@ public module system_monitor {
       if (terminal.selected_row < 0) {
         terminal.selected_row = 0;
       }
-      terminal.selected = String("");
+      terminal.selected = try String("");
       if (data.rows.len() > 0) {
         terminal.selected = try resource_identity(
           a,
@@ -134,9 +154,9 @@ public module system_monitor {
       terminal: ref Terminal,
       o: ref Options
     ) Result<String> {
-      var out = String("");
+      var out = try String("");
       if (terminal.active) {
-        out.append("\x1b[H\x1b[2J");
+        try out.append("\x1b[H\x1b[2J");
       }
       try terminal.tabs(a, out, o.monitor);
       var style = TableStyle(terminal.columns, terminal.active);
@@ -145,56 +165,81 @@ public module system_monitor {
         if (width < 1) {
           width = 1;
         }
-        out.append(
-          try safe_text(a, String("Enlarge terminal to 65 columns and 18 rows. q quits."), width)
+        try out.append(
+          try safe_text(
+            a,
+            try String("Enlarge terminal to 65 columns and 18 rows. q quits."),
+            width
+          )
         );
 
         return Result.Ok(out);
       }
       try this.locate(a, data, terminal, o.monitor);
-      var title = String("SYSTEM MONITOR / ");
-      title.append(o.monitor);
-      title.append("  |  rows ");
-      title.append(data.rows.len());
-      title.append("  |  sample ");
-      title.append(data.samples);
-      style.color(out, "\x1b[1;36m");
-      out.append(try safe_text(a, title, style.width));
-      style.color(out, "\x1b[0m");
-      out.append("\r\n");
-      var hint = String("1-5 tabs  Tab focus  Up/Down select  space pause  q quit");
+      var title = try String("SYSTEM MONITOR / ");
+      try title.append(o.monitor);
+      try title.append("  |  rows ");
+      try title.append(data.rows.len());
+      try title.append("  |  sample ");
+      try title.append(data.samples);
+      try style.color(out, "\x1b[1;36m");
+      try out.append(try safe_text(a, title, style.width));
+      try style.color(out, "\x1b[0m");
+      try out.append("\r\n");
+      var hint = try String("1-5 tabs  Tab focus  Up/Down select  space pause  q quit");
+
       if (terminal.tabs_focused) {
-        hint = String("TABS: Left/Right choose  Down/Enter view  1-5 jump  q quit");
+        hint = try String("TABS: Left/Right choose  Down/Enter view  1-5 jump  q quit");
       }
-      out.append(try safe_text(a, hint, style.width));
-      out.append("\r\n");
-      var detail = data.message.clone(a);
+      try out.append(try safe_text(a, hint, style.width));
+      try out.append("\r\n");
+      var detail = try data.message.clone(a);
       if (data.rows.len() > 0) {
-        var row: ref Json = try data.rows.at(terminal.selected_row);
-        detail = String("Selected ");
-        detail.append(terminal.selected_row + 1);
-        detail.append(" / ");
-        detail.append(data.rows.len());
-        detail.append(" | ");
+        var row: ref std.json.Json = try data.rows.at(terminal.selected_row);
+        detail = try String("Selected ");
+        try detail.append(terminal.selected_row + 1);
+        try detail.append(" / ");
+        try detail.append(data.rows.len());
+        try detail.append(" | ");
         if (o.monitor.equals_literal("disk")) {
-          detail.append(try (try row.get("filesystem")).as_string());
-          detail.append(" on ");
-          detail.append(try (try row.get("mount")).as_string());
-          detail.append(" | total GiB ");
-          detail.append(try resource_number(row, String("total_bytes"), 1073741824.0));
+          try detail.append(try (try row.get("filesystem")).as_string());
+
+          try detail.append(" on ");
+          try detail.append(try (try row.get("mount")).as_string());
+          try detail.append(" | total GiB ");
+          try detail.append(
+            try resource_number(
+              row,
+              try String("total_bytes"),
+              1073741824.0
+            )
+          );
         } else if (o.monitor.equals_literal("network")) {
-          detail.append("RX/TX total MiB ");
-          detail.append(try resource_number(row, String("rx_bytes"), 1048576.0));
-          detail.append(" / ");
-          detail.append(try resource_number(row, String("tx_bytes"), 1048576.0));
+          try detail.append("RX/TX total MiB ");
+          try detail.append(
+            try resource_number(
+              row,
+              try String("rx_bytes"),
+              1048576.0
+            )
+          );
+
+          try detail.append(" / ");
+          try detail.append(
+            try resource_number(
+              row,
+              try String("tx_bytes"),
+              1048576.0
+            )
+          );
         } else if (o.monitor.equals_literal("service")) {
-          detail.append(try (try row.get("description")).as_string());
+          try detail.append(try (try row.get("description")).as_string());
         } else {
-          detail.append(try resource_cell(a, o.monitor, row, 0));
+          try detail.append(try resource_cell(a, o.monitor, row, 0));
         }
       }
-      out.append(try safe_text(a, detail, style.width));
-      out.append("\r\n");
+      try out.append(try safe_text(a, detail, style.width));
+      try out.append("\r\n");
       var height = (terminal.rows - 15) / 3;
       if (height < 1) {
         height = 1;
@@ -203,12 +248,12 @@ public module system_monitor {
         height = 8;
       }
       var visible = terminal.rows - 15 - height;
-      var headers_text = resource_columns(o.monitor);
-      var headers = headers_text.split(a, b'|');
-      style.rule(out, 0, false);
-      style.edge(out, "│", "|");
+      var headers_text = try resource_columns(o.monitor);
+      var headers = try headers_text.split(a, b'|');
+      try style.rule(out, 0, false);
+      try style.edge(out, "│", "|");
       for (var col: i64 = 0; col < headers.size(); col = col + 1) {
-        style.color(out, "\x1b[1;32m");
+        try style.color(out, "\x1b[1;32m");
         try style.cell(
           a,
           out,
@@ -218,8 +263,8 @@ public module system_monitor {
           false
         );
       }
-      out.append("\r\n");
-      style.rule(out, 1, false);
+      try out.append("\r\n");
+      try style.rule(out, 1, false);
       var first: i64 = 0;
       if (terminal.selected_row >= visible) {
         first = terminal.selected_row - visible + 1;
@@ -227,21 +272,21 @@ public module system_monitor {
       for (var i: i64 = 0; i < visible; i = i + 1) {
         var index = first + i;
         if (data.rows.len() == 0) {
-          var line = String("");
+          var line = try String("");
           if (i < data.lines.size()) {
-            line = (try data.lines.get(i)).clone(a);
+            line = try (try data.lines.get(i)).clone(a);
           }
           try style.panel_line(a, out, line, false);
           continue;
         }
-        style.edge(out, "│", "|");
+        try style.edge(out, "│", "|");
         for (var col: i64 = 0; col < headers.size(); col = col + 1) {
-          var cell = String("");
+          var cell = try String("");
           if (index < data.rows.len()) {
             cell = try resource_cell(a, o.monitor, try data.rows.at(index), col);
           }
           if (cell.equals_literal("failed") or cell.equals_literal("critical")) {
-            style.color(out, "\x1b[1;31m");
+            try style.color(out, "\x1b[1;31m");
           }
           try style.cell(
             a,
@@ -252,9 +297,9 @@ public module system_monitor {
             index == terminal.selected_row and not terminal.tabs_focused
           );
         }
-        out.append("\r\n");
+        try out.append("\r\n");
       }
-      style.rule(out, 2, false);
+      try style.rule(out, 2, false);
       try this.history.draw(a, out, style, o.monitor, terminal.selected, height, o.interval);
       return Result.Ok(out);
     }

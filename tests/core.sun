@@ -17,8 +17,8 @@ public module system_monitor {
     DivisionByZero(DivisionByZeroError),
     Overflow(OverflowError),
     Arithmetic(ArithmeticError),
-    Json(JsonError),
-    Xml(XmlError),
+    Json(std.json.JsonError),
+    Xml(std.xml.XmlError),
     Decode(ProtoDecodeError),
     Assertion(std.test.AssertionError)
   }
@@ -45,12 +45,12 @@ public module system_monitor {
       p.pid = 7;
       p.start = 1;
       p.ticks = 100;
-      old.processes.push(p);
+      try old.processes.push(p);
       var q = Process();
       q.pid = 7;
       q.start = 2;
       q.ticks = 200;
-      now.processes.push(q);
+      try now.processes.push(q);
       now.elapsed = 1000;
       try calculate(now, old, 100);
       try std.test.assert((try now.processes.get(0)).cpu < 0.0, "new identity has no baseline");
@@ -61,7 +61,7 @@ public module system_monitor {
     /** Checks that history evicts old frames. */
     test_function history_evicts_old_frames() MonitorTestResult<void> {
       var a = make_heap_allocator();
-      var h = History(a);
+      var h = try History(a);
       h.duration = 1000;
       var f = Frame(a);
       f.elapsed = 0;
@@ -87,15 +87,15 @@ public module system_monitor {
       var p = Process();
       p.pid = 42;
       p.start = 123;
-      p.exe = String("/opt/ros/component_container");
-      p.args = String("node\0--ros-args\0-r\0__node:=camera\0-r\0__ns:=/robot\0");
+      p.exe = try String("/opt/ros/component_container");
+      p.args = try String("node\0--ros-args\0-r\0__node:=camera\0-r\0__ns:=/robot\0");
       try label_process(a, p);
       try std.test.assert(
         p.label.equals_literal("/robot/camera [shared container]"),
         "ROS label"
       );
       var f = Frame(a);
-      f.processes.push(p);
+      try f.processes.push(p);
       var j = try frame_json(a, f);
       var copy = try decode_frame(a, j);
       try std.test.assert_eq((try copy.processes.get(0)).start, 123i64);
@@ -111,11 +111,11 @@ public module system_monitor {
       var p = Process();
       p.pid = 2;
       p.cpu = 10.0;
-      f.processes.push(p);
+      try f.processes.push(p);
       var q = Process();
       q.pid = 1;
       q.cpu = 10.0;
-      f.processes.push(q);
+      try f.processes.push(q);
       var order = try ranking(a, f, false);
       try std.test.assert_eq(try order.get(0), 1i64);
       try std.test.assert_eq(f.processes.size(), 2i64);
@@ -130,13 +130,13 @@ public module system_monitor {
     /** Verifies explicit labels do not leak across PID reuse or appear late. */
     test_function labels_bind_only_to_initial_identities() MonitorTestResult<void> {
       var a = make_heap_allocator();
-      var labels = Labels(a);
-      labels.document = try parse_json(a, "{\"7\":\"camera\",\"8\":\"late\"}");
+      var labels = try Labels(a);
+      labels.document = try std.json.parse_json(a, "{\"7\":\"camera\",\"8\":\"late\"}");
       var f = Frame(a);
       var p = Process();
       p.pid = 7;
       p.start = 1;
-      f.processes.push(p);
+      try f.processes.push(p);
       try labels.apply(a, f);
       try std.test.assert(
         (try f.processes.get(0)).label.equals_literal("camera"),
@@ -146,13 +146,13 @@ public module system_monitor {
       var q = Process();
       q.pid = 7;
       q.start = 2;
-      q.label = String("original");
-      next.processes.push(q);
+      q.label = try String("original");
+      try next.processes.push(q);
       var late = Process();
       late.pid = 8;
       late.start = 3;
-      late.label = String("unbound");
-      next.processes.push(late);
+      late.label = try String("unbound");
+      try next.processes.push(late);
       try labels.apply(a, next);
       try std.test.assert(
         (try next.processes.get(0)).label.equals_literal("original"),
@@ -175,13 +175,13 @@ public module system_monitor {
       p.pid = 1;
       p.start = 8;
       p.ticks = 100;
-      old.processes.push(p);
+      try old.processes.push(p);
       var q = Process();
       q.pid = 1;
       q.start = 8;
       q.ticks = 150;
       q.rss = 256;
-      next.processes.push(q);
+      try next.processes.push(q);
       next.elapsed = 500;
       next.total_memory = 1024;
       try calculate(next, old, 100);
@@ -194,23 +194,23 @@ public module system_monitor {
     /** Keeps exited samples until their history expires. */
     test_function exited_process_history_and_missing_gaps() MonitorTestResult<void> {
       var a = make_heap_allocator();
-      var history = History(a);
+      var history = try History(a);
       var f = Frame(a);
       var p = Process();
       p.pid = 2;
       p.start = 3;
       p.cpu = 50.0;
-      f.processes.push(p);
+      try f.processes.push(p);
       try history.add(f);
       var next = Frame(a);
       next.elapsed = 1000;
       try history.add(next);
       try std.test.assert(
-        (try history_value(try history.frames.get(0), 2, 3, false)) == 50.0,
+        try history_value(try history.frames.get(0), 2, 3, false) == 50.0,
         "retained measurement"
       );
       try std.test.assert(
-        (try history_value(try history.frames.get(1), 2, 3, false)) < 0.0,
+        try history_value(try history.frames.get(1), 2, 3, false) < 0.0,
         "exit stays unavailable"
       );
 
@@ -221,8 +221,8 @@ public module system_monitor {
     test_function ordinary_arguments_do_not_rename_processes() MonitorTestResult<void> {
       var a = make_heap_allocator();
       var p = Process();
-      p.exe = String("/bin/tool");
-      p.args = String("tool\0__node:=fake\0");
+      p.exe = try String("/bin/tool");
+      p.args = try String("tool\0__node:=fake\0");
       try label_process(a, p);
       try std.test.assert(p.label.equals_literal("tool"), "non-ROS arguments ignored");
 
@@ -232,7 +232,7 @@ public module system_monitor {
     /** Sanitizes process names before printing terminal control sequences. */
     test_function terminal_names_are_plain_text() MonitorTestResult<void> {
       var a = make_heap_allocator();
-      var s = String("a\x1b[2J\nb");
+      var s = try String("a\x1b[2J\nb");
       var text = try safe_text(a, s, 20);
       try std.test.assert(text.equals_literal("a?[2J?b"), "escape and newline removed");
 
@@ -244,11 +244,11 @@ public module system_monitor {
       var a = make_heap_allocator();
       var f = Frame(a);
       var p = Process();
-      p.label = String("before");
-      f.processes.push(p);
+      p.label = try String("before");
+      try f.processes.push(p);
       var copy = try f.copy(a);
       var copied_process = try f.processes.get(0);
-      copied_process.label = String("after");
+      copied_process.label = try String("after");
       try std.test.assert(
         (try copy.processes.get(0)).label.equals_literal("before"),
         "independent copy"
@@ -266,12 +266,12 @@ public module system_monitor {
     p.pid = 1;
     p.cpu = 7.0;
     p.rss = 10;
-    f.processes.push(p);
+    try f.processes.push(p);
     var q = Process();
     q.pid = 2;
     q.cpu = 3.0;
     q.rss = 20;
-    f.processes.push(q);
+    try f.processes.push(q);
     var order = try ranking(a, f, true);
     try std.test.assert_eq(try order.get(0), 1i64);
     try std.test.assert((try f.processes.get(0)).cpu == 7.0, "CPU value preserved");

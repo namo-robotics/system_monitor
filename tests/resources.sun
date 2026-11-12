@@ -19,7 +19,10 @@ public module system_monitor {
     /** Verifies receive and transmit columns and aggregated error counters. */
     test_function parses_interface_counters() MonitorTestResult<void> {
       var a = make_heap_allocator();
-      var t = try parse_traffic(a, String(" eth0: 1024 10 2 3 0 0 0 0 4096 20 4 5 0 0 0 0"));
+      var t = try parse_traffic(
+        a,
+        try String(" eth0: 1024 10 2 3 0 0 0 0 4096 20 4 5 0 0 0 0")
+      );
       try std.test.assert(t.name.equals_literal("eth0"), "trimmed interface");
       try std.test.assert_eq(t.received, 1024i64);
       try std.test.assert_eq(t.sent, 4096i64);
@@ -31,12 +34,12 @@ public module system_monitor {
 
     /** Keeps invalid sensor readings distinct from real zero temperatures. */
     test_function missing_temperatures_are_unknown() MonitorTestResult<void> {
-      var value = String("");
-      try std.test.assert(temperature_text(value).equals_literal("N/A"), "missing sensor");
-      value = String("42000");
-      try std.test.assert(temperature_text(value).equals_literal("42.0"), "millidegrees");
-      value = String("-5500");
-      try std.test.assert(temperature_text(value).equals_literal("-5.5"), "subzero sensor");
+      var value = try String("");
+      try std.test.assert((try temperature_text(value)).equals_literal("N/A"), "missing sensor");
+      value = try String("42000");
+      try std.test.assert((try temperature_text(value)).equals_literal("42.0"), "millidegrees");
+      value = try String("-5500");
+      try std.test.assert((try temperature_text(value)).equals_literal("-5.5"), "subzero sensor");
 
       return MonitorTestResult.Ok;
     }
@@ -45,7 +48,7 @@ public module system_monitor {
     test_function malformed_traffic_is_rejected() MonitorTestResult<void> {
       var a = make_heap_allocator();
       var rejected = false;
-      match parse_traffic(a, String("eth0: 1 2")) {
+      match parse_traffic(a, try String("eth0: 1 2")) {
         Result.Ok(value) => {},
         (e: const ref IError) => {
           rejected = true;
@@ -59,7 +62,10 @@ public module system_monitor {
     /** Keeps filesystem and mount names distinct from numeric capacity columns. */
     test_function disk_rows_preserve_mounts_and_units() MonitorTestResult<void> {
       var a = make_heap_allocator();
-      var row = try disk_row(a, String("/dev/disk name 1000 250 700 27% /media/My Disk"));
+      var row = try disk_row(
+        a,
+        try String("/dev/disk name 1000 250 700 27% /media/My Disk")
+      );
       try std.test.assert(
         (try (try row.get("filesystem")).as_string()).equals_literal("/dev/disk name"),
         "filesystem with spaces"
@@ -72,14 +78,17 @@ public module system_monitor {
       try std.test.assert_eq(try (try row.get("available_bytes")).as_i64(), 716800i64);
       try std.test.assert_eq(try (try row.get("used_percent")).as_i64(), 27i64);
       var rejected = false;
-      match disk_row(a, String("Filesystem 1024-blocks Used Available Capacity Mounted on")) {
+      match disk_row(
+        a,
+        try String("Filesystem 1024-blocks Used Available Capacity Mounted on")
+      ) {
         Result.Ok(value) => {},
         (e: const ref IError) => {
           rejected = true;
         }
       };
       try std.test.assert(rejected, "header cannot become a measurement");
-      row = try disk_row(a, String("none 0 0 0 - /empty"));
+      row = try disk_row(a, try String("none 0 0 0 - /empty"));
       try std.test.assert(
         (try row.get("used_percent")).is_null(),
         "unknown filesystem percentage"
@@ -94,7 +103,7 @@ public module system_monitor {
       var a = make_heap_allocator();
       var row = try service_row(
         a,
-        String("camera.service loaded failed failed Robot camera service")
+        try String("camera.service loaded failed failed Robot camera service")
       );
       try std.test.assert(
         (try (try row.get("active")).as_string()).equals_literal("failed"),
@@ -111,26 +120,41 @@ public module system_monitor {
     /** Distinguishes cold, critical and unreadable sensors without inventing thresholds. */
     test_function structured_sensor_values_preserve_unknowns() MonitorTestResult<void> {
       var a = make_heap_allocator();
-      var row = try sensor_row(a, String("cold"), String("-5500"), String(""));
-      try std.test.assert((try (try row.get("celsius")).as_f64()) == -5.5, "signed Celsius");
+      var row = try sensor_row(
+        a,
+        try String("cold"),
+        try String("-5500"),
+        try String("")
+      );
+      try std.test.assert(try (try row.get("celsius")).as_f64() == -5.5, "signed Celsius");
       try std.test.assert((try row.get("critical_celsius")).is_null(), "unknown critical limit");
       try std.test.assert(
         (try (try row.get("status")).as_string()).equals_literal("no threshold"),
         "not assumed healthy"
       );
-      row = try sensor_row(a, String("hot"), String("90000"), String("90000"));
+      row = try sensor_row(
+        a,
+        try String("hot"),
+        try String("90000"),
+        try String("90000")
+      );
       try std.test.assert(
         (try (try row.get("status")).as_string()).equals_literal("critical"),
         "threshold reached"
       );
-      row = try sensor_row(a, String("missing"), String("invalid"), String("90000"));
+      row = try sensor_row(
+        a,
+        try String("missing"),
+        try String("invalid"),
+        try String("90000")
+      );
       try std.test.assert((try row.get("celsius")).is_null(), "missing is not zero");
       try std.test.assert(
         (try (try row.get("status")).as_string()).equals_literal("unavailable"),
         "missing status"
       );
       try std.test.assert(rate_json(-1.0).is_null(), "unknown rate");
-      try std.test.assert((try rate_json(0.0).as_f64()) == 0.0, "idle rate is real zero");
+      try std.test.assert(try rate_json(0.0).as_f64() == 0.0, "idle rate is real zero");
 
       return MonitorTestResult.Ok;
     }
@@ -138,11 +162,14 @@ public module system_monitor {
     /** Verifies all menu shortcuts select a recognized monitor. */
     test_function menu_choices_are_valid() MonitorTestResult<void> {
       for (var key: u8 = b'1'; key <= b'5'; key = key + 1u8) {
-        var choice = monitor_choice(key);
+        var choice = try monitor_choice(key);
         try std.test.assert(valid_monitor(choice), "known view");
         try std.test.assert(not choice.equals_literal("menu"), "selects a monitor");
       }
-      try std.test.assert(not valid_monitor(String("unknown")), "reject unknown view");
+      try std.test.assert(
+        not valid_monitor(try String("unknown")),
+        "reject unknown view"
+      );
 
       return MonitorTestResult.Ok;
     }

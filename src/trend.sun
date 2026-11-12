@@ -28,10 +28,10 @@ public module system_monitor {
     var color: i64 = -1;
 
     /** Copies the metadata needed to identify one plotted process. */
-    init(a: const ref HeapAllocator, process: ref Process) {
+    init(a: const ref HeapAllocator, process: ref Process) std.AllocationResult<void> {
       this.pid = process.pid;
       this.start = process.start;
-      this.label = process.label.clone(a);
+      this.label = try process.label.clone(a);
     }
   }
 
@@ -54,12 +54,12 @@ public module system_monitor {
     var depths: ContiguousBuffer<i64>;
 
     /** Allocates a character grid with finer dot coordinates inside each cell. */
-    init(a: const ref HeapAllocator, width: i64, height: i64) {
+    init(a: const ref HeapAllocator, width: i64, height: i64) std.AllocationResult<void> {
       this.width = width;
       this.height = height;
-      this.masks = ContiguousBuffer<i64>(a, width * height);
-      this.owners = ContiguousBuffer<i64>(a, width * height);
-      this.depths = ContiguousBuffer<i64>(a, width * height);
+      this.masks = try ContiguousBuffer<i64>(a, width * height);
+      this.owners = try ContiguousBuffer<i64>(a, width * height);
+      this.depths = try ContiguousBuffer<i64>(a, width * height);
       this.depths.fill(-1);
       this.masks.fill(0);
       this.owners.fill(-1);
@@ -87,7 +87,7 @@ public module system_monitor {
           bit = 128;
         }
       }
-      try this.masks.set(index, (try buffer_value(this.masks, index)) | bit);
+      try this.masks.set(index, try buffer_value(this.masks, index) | bit);
       try this.owners.set(index, owner);
 
       return Result.Ok;
@@ -101,7 +101,7 @@ public module system_monitor {
       for (var y = top; y < this.height * 4; y = y + 1) {
         var index = (y / 4) * this.width + x / 2;
         var foreground: i64 = try buffer_value(this.owners, index);
-        if (top >= (try buffer_value(this.depths, index))) {
+        if (top >= try buffer_value(this.depths, index)) {
           try this.depths.set(index, top);
           foreground = owner;
         }
@@ -140,18 +140,18 @@ public module system_monitor {
         var index = row * this.width + col;
         var mask: i64 = try buffer_value(this.masks, index);
         if (mask == 0) {
-          out.append(" ");
+          try out.append(" ");
           continue;
         }
         if (colored) {
-          out.append(trend_color(try buffer_value(this.owners, index)));
+          try out.append(trend_color(try buffer_value(this.owners, index)));
         }
-        out.append_char(226u8);
-        out.append_char(_convert<u8>(160 + mask / 64));
-        out.append_char(_convert<u8>(128 + mask % 64));
+        try out.append_char(226u8);
+        try out.append_char(_convert<u8>(160 + mask / 64));
+        try out.append_char(_convert<u8>(128 + mask % 64));
       }
       if (colored) {
-        out.append("\x1b[0m");
+        try out.append("\x1b[0m");
       }
 
       return Result.Ok;
@@ -164,20 +164,20 @@ public module system_monitor {
     var duration: i64 = 60000;
 
     /** Starts with no assigned colors or process identities. */
-    init(a: const ref HeapAllocator) {
-      this.series = Vec<TrendSeries>(a, 5);
+    init(a: const ref HeapAllocator) std.AllocationResult<void> {
+      this.series = try Vec<TrendSeries>(a, 5);
     }
 
     /** Chooses current leaders independently of the table's display limit. */
     method select(a: const ref HeapAllocator, frame: ref Frame, memory: bool) Result<void> {
       var order = try ranking(a, frame, memory);
-      var next = Vec<TrendSeries>(a, 5);
+      var next = try Vec<TrendSeries>(a, 5);
       for (var i: i64 = 0; i < order.size() and next.size() < 5; i = i + 1) {
         var process: ref Process = try frame.processes.get(try order.get(i));
         if ((memory and process.rss < 0) or (not memory and process.cpu < 0.0)) {
           continue;
         }
-        var item = TrendSeries(a, process);
+        var item = try TrendSeries(a, process);
         for (var old: i64 = 0; old < this.series.size(); old = old + 1) {
           var prior: ref TrendSeries = try this.series.get(old);
           if (prior.pid == item.pid and prior.start == item.start) {
@@ -185,7 +185,7 @@ public module system_monitor {
             break;
           }
         }
-        next.push(item);
+        try next.push(item);
       }
       try this.assign_colors(next);
       this.series = next;
@@ -301,20 +301,20 @@ public module system_monitor {
       row: i64,
       peak: f64
     ) Result<void> {
-      var label = String("");
+      var label = try String("");
       if (row == 0) {
-        label = decimal(peak);
+        label = try decimal(peak);
       } else if (row == canvas.height - 1) {
-        label = String("0");
+        label = try String("0");
       }
-      style.edge(out, "│", "|");
-      out.append(" ");
-      out.append(padded(try safe_text(a, label, 8), 8));
-      out.append(" ");
+      try style.edge(out, "│", "|");
+      try out.append(" ");
+      try out.append(try padded(try safe_text(a, label, 8), 8));
+      try out.append(" ");
       try canvas.render_row(out, row, style.colored);
-      out.append(" ");
-      style.edge(out, "│", "|");
-      out.append("\r\n");
+      try out.append(" ");
+      try style.edge(out, "│", "|");
+      try out.append("\r\n");
 
       return Result.Ok;
     }
@@ -322,27 +322,28 @@ public module system_monitor {
     /** Identifies every line with matching colors, process names, and PIDs. */
     method legend(a: const ref HeapAllocator, out: ref String, style: ref TableStyle) Result<void> {
       for (var row: i64 = 0; row < 2; row = row + 1) {
-        style.edge(out, "│", "|");
+        try style.edge(out, "│", "|");
         var width = (style.width - 2) / 3;
         for (var col: i64 = 0; col < 3; col = col + 1) {
           var index = row * 3 + col;
-          var text = String("");
+          var text = try String("");
           if (index < this.series.size()) {
             var item: const ref TrendSeries = try this.series.get(index);
-            text.append(item.pid);
-            text.append(" ");
-            text.append(item.label);
-            style.color(out, trend_color(item.color));
+            try text.append(item.pid);
+            try text.append(" ");
+            try text.append(item.label);
+            try style.color(out, trend_color(item.color));
           }
           var cell_width = width;
           if (col == 2) {
             cell_width = style.width - 2 - width * 2;
           }
-          out.append(padded(try safe_text(a, text, cell_width), cell_width));
-          style.color(out, "\x1b[0m");
+          try out.append(try padded(try safe_text(a, text, cell_width), cell_width));
+
+          try style.color(out, "\x1b[0m");
         }
-        style.edge(out, "│", "|");
-        out.append("\r\n");
+        try style.edge(out, "│", "|");
+        try out.append("\r\n");
       }
 
       return Result.Ok;
@@ -355,34 +356,34 @@ public module system_monitor {
       style: ref TableStyle,
       memory: bool
     ) Result<void> {
-      var title = String("TOP 5 CPU HISTORY (%)  |  ");
+      var title = try String("TOP 5 CPU HISTORY (%)  |  ");
       if (memory) {
-        title = String("TOP 5 MEMORY HISTORY (RSS MiB)  |  ");
+        title = try String("TOP 5 MEMORY HISTORY (RSS MiB)  |  ");
       }
       var selected = title.length();
       if (memory) {
         selected = selected + 6;
       }
-      title.append("CPU / MEM");
+      try title.append("CPU / MEM");
       if (this.series.is_empty()) {
-        title.append("  |  waiting");
+        try title.append("  |  waiting");
       }
-      var text = padded(try safe_text(a, title, style.width - 4), style.width - 4);
-      style.edge(out, "│", "|");
-      out.append(" ");
+      var text = try padded(try safe_text(a, title, style.width - 4), style.width - 4);
+      try style.edge(out, "│", "|");
+      try out.append(" ");
       for (var i: i64 = 0; i < text.length(); i = i + 1) {
         if (i == selected) {
-          style.color(out, "\x1b[1m");
+          try style.color(out, "\x1b[1m");
         }
         if (i == selected + 3) {
-          style.color(out, "\x1b[22m");
+          try style.color(out, "\x1b[22m");
         }
-        out.append_char(try text.at(i));
+        try out.append_char(try text.at(i));
       }
-      style.color(out, "\x1b[0m");
-      out.append(" ");
-      style.edge(out, "│", "|");
-      out.append("\r\n");
+      try style.color(out, "\x1b[0m");
+      try out.append(" ");
+      try style.edge(out, "│", "|");
+      try out.append("\r\n");
 
       return Result.Ok;
     }
@@ -397,29 +398,30 @@ public module system_monitor {
       height: i64
     ) Result<void> {
       var peak = try this.scale(history, memory);
-      var canvas = DotCanvas(a, style.width - 13, height);
+      var canvas = try DotCanvas(a, style.width - 13, height);
       for (var i = this.series.size(); i > 0; i = i - 1) {
         try this.trace(canvas, history, try this.series.get(i - 1), memory, peak);
       }
-      style.rule(out, 0, false);
+      try style.rule(out, 0, false);
       try this.header(a, out, style, memory);
-      style.rule(out, 1, false);
+      try style.rule(out, 1, false);
       for (var row: i64 = 0; row < height; row = row + 1) {
         try this.plot_row(a, out, style, canvas, row, peak);
       }
       var begin = (this.begin(history)) - history.origin;
-      var axis = String("elapsed  +");
-      axis.append(decimal(_convert<f64>(begin) / 1000.0));
-      axis.append("s");
-      var right = String("+");
-      right.append(decimal(_convert<f64>(begin + this.duration) / 1000.0));
-      right.append("s");
-      var left = padded(axis, style.width - 4 - right.length());
-      left.append(right);
+      var axis = try String("elapsed  +");
+      try axis.append(try decimal(_convert<f64>(begin) / 1000.0));
+      try axis.append("s");
+      var right = try String("+");
+      try right.append(try decimal(_convert<f64>(begin + this.duration) / 1000.0));
+
+      try right.append("s");
+      var left = try padded(axis, style.width - 4 - right.length());
+      try left.append(right);
       try style.panel_line(a, out, left, false);
-      style.rule(out, 1, false);
+      try style.rule(out, 1, false);
       try this.legend(a, out, style);
-      style.rule(out, 2, false);
+      try style.rule(out, 2, false);
 
       return Result.Ok;
     }

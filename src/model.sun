@@ -31,17 +31,24 @@ public module system_monitor {
     var rss: i64 = -1;
     var cpu: f64 = -1.0;
     var memory: f64 = -1.0;
-    var exe: String = String("");
-    var args: String = String("");
-    var label: String = String("");
+    var exe: String;
+    var args: String;
+    var label: String;
 
     /** Formats a stable identity from the PID and process start marker. */
-    method id() String {
-      var s = String("");
-      s.append(this.pid);
-      s.append(":");
-      s.append(this.start);
-      return s;
+    method id() std.AllocationResult<String> {
+      var s = try String("");
+      try s.append(this.pid);
+      try s.append(":");
+      try s.append(this.start);
+      return std.AllocationResult.Ok(s);
+    }
+
+    /** Initializes owned storage and reports allocation failure. */
+    init() std.AllocationResult<void> {
+      this.exe = try String("");
+      this.args = try String("");
+      this.label = try String("");
     }
   }
 
@@ -54,28 +61,28 @@ public module system_monitor {
     var processes: Vec<Process>;
 
     /** Initializes owned state and resources for this object. */
-    init(alloc: const ref HeapAllocator) {
-      this.processes = Vec<Process>(alloc, 64);
+    init(alloc: const ref HeapAllocator) std.AllocationResult<void> {
+      this.processes = try Vec<Process>(alloc, 64);
     }
 
     /** Copies display measurements while keeping raw baselines in the live frame. */
     method copy(a: const ref HeapAllocator) Result<Frame> {
-      var out = Frame(a);
+      var out = try Frame(a);
       out.timestamp = this.timestamp;
       out.elapsed = this.elapsed;
       out.total_memory = this.total_memory;
       out.inaccessible = this.inaccessible;
       for (var i: i64 = 0; i < (this.processes.size()); i = i + 1) {
         var p: ref Process = try this.processes.get(i);
-        var q = Process();
+        var q = try Process();
         q.pid = p.pid;
         q.start = p.start;
         q.rss = p.rss;
         q.cpu = p.cpu;
         q.memory = p.memory;
-        q.exe = p.exe.clone(a);
-        q.label = p.label.clone(a);
-        out.processes.push(q);
+        q.exe = try p.exe.clone(a);
+        q.label = try p.label.clone(a);
+        try out.processes.push(q);
       }
       return Result.Ok(out);
     }

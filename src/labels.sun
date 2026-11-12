@@ -6,12 +6,12 @@ public module system_monitor {
   /** Applies explicit names only to identities observed in the first sample. */
   class Labels {
     var bound: bool = false;
-    var document: Json = Json();
+    var document: std.json.Json = std.json.Json();
     var identities: Map<i64, i64>;
 
     /** Initializes owned state and resources for this object. */
-    init(a: const ref HeapAllocator) {
-      this.identities = Map<i64, i64>(a, 16);
+    init(a: const ref HeapAllocator) std.AllocationResult<void> {
+      this.identities = try Map<i64, i64>(a, 16);
     }
 
     /** Applies configured labels without carrying them across PID reuse. */
@@ -21,25 +21,25 @@ public module system_monitor {
       }
       for (var i: i64 = 0; i < f.processes.size(); i = i + 1) {
         var p: ref Process = try f.processes.get(i);
-        var key = String("");
-        key.append(p.pid);
+        var key = try String("");
+        try key.append(p.pid);
         for (var k: i64 = 0; k < this.document.len(); k = k + 1) {
           var matches = match this.document.key_at(k) {
-            JsonResult.Ok(name) => name.equals(key),
-            JsonResult.Error(error) => {
+            std.json.JsonResult.Ok(name) => name.equals(key),
+            std.json.JsonResult.Error(error) => {
               return Result.Json(error);
             }
           };
           if (matches) {
             if (not this.bound and not this.identities.contains(p.pid)) {
-              this.identities.insert(p.pid, p.start);
+              try this.identities.insert(p.pid, p.start);
             }
             var same_identity = false;
             if (this.identities.contains(p.pid)) {
-              same_identity = (try this.identities.get(p.pid)) == p.start;
+              same_identity = try this.identities.get(p.pid) == p.start;
             }
             if (same_identity) {
-              p.label = (try (try this.document.value_at(k)).as_string()).clone(a);
+              p.label = try (try (try this.document.value_at(k)).as_string()).clone(a);
             }
             break;
           }
@@ -53,14 +53,14 @@ public module system_monitor {
 
   /** Derives a process label from its executable and ROS remapping arguments. */
   function label_process(alloc: const ref HeapAllocator, p: ref Process) Result<void> {
-    var parts = p.exe.split(alloc, "/");
-    p.label = (try parts.get(parts.size() - 1)).clone(alloc);
+    var parts = try p.exe.split(alloc, "/");
+    p.label = try (try parts.get(parts.size() - 1)).clone(alloc);
     if (p.label.is_empty()) {
-      p.label = String("process");
+      p.label = try String("process");
     }
-    var args = p.args.split_nonempty(alloc, 0u8);
-    var node = String("");
-    var ns = String("");
+    var args = try p.args.split_nonempty(alloc, 0u8);
+    var node = try String("");
+    var ns = try String("");
     var ros = false;
     for (var i: i64 = 0; i < args.size(); i = i + 1) {
       var arg: ref String = try args.get(i);
@@ -85,18 +85,18 @@ public module system_monitor {
       }
     }
     if (not node.is_empty()) {
-      p.label = String("");
+      p.label = try String("");
       if (not ns.starts_with("/")) {
-        p.label.append("/");
+        try p.label.append("/");
       }
-      p.label.append(ns);
+      try p.label.append(ns);
       if (not p.label.ends_with("/")) {
-        p.label.append("/");
+        try p.label.append("/");
       }
-      p.label.append(node);
+      try p.label.append(node);
     }
     if (p.exe.contains("component_container")) {
-      p.label.append(" [shared container]");
+      try p.label.append(" [shared container]");
     }
 
     return Result.Ok;

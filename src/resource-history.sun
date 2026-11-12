@@ -4,58 +4,70 @@ public module system_monitor {
   using std;
 
   /** Formats signed measurements without using negative values as missing markers. */
-  function resource_decimal(value: f64) String {
+  function resource_decimal(value: f64) std.AllocationResult<String> {
     if (value >= 0.0) {
-      return decimal(value);
+      return std.AllocationResult.Ok(try decimal(value));
     }
-    var text = String("-");
-    text.append(decimal(-value));
-    return text;
+    var text = try String("-");
+    try text.append(try decimal(-value));
+    return std.AllocationResult.Ok(text);
   }
 
   /** Identifies a row across reordering and sampling. */
   function resource_identity(
     a: const ref HeapAllocator,
     name: const ref String,
-    row: ref Json
+    row: ref std.json.Json
   ) Result<String> {
     if (name.equals_literal("disk")) {
-      var id = (try (try row.get("filesystem")).as_string()).clone(a);
-      id.append("\n");
-      id.append(try (try row.get("mount")).as_string());
+      var id = try (try (try row.get("filesystem")).as_string()).clone(a);
+
+      try id.append("\n");
+      try id.append(try (try row.get("mount")).as_string());
       return Result.Ok(id);
     }
     if (name.equals_literal("service")) {
-      return Result.Ok((try (try row.get("unit")).as_string()).clone(a));
+      return Result.Ok(
+        try (try (try row.get("unit")).as_string()).clone(a)
+      );
     }
     if (name.equals_literal("network")) {
-      return Result.Ok((try (try row.get("interface")).as_string()).clone(a));
+      return Result.Ok(
+        try (try (try row.get("interface")).as_string()).clone(a)
+      );
     }
-    return Result.Ok((try (try row.get("sensor")).as_string()).clone(a));
+    return Result.Ok(
+      try (try (try row.get("sensor")).as_string()).clone(a)
+    );
   }
 
   /** Holds two optional measurements without conflating missing data with zero or cold readings. */
   class ResourceReading {
-    var id: String = String("");
+    var id: String;
     var first: f64 = 0.0;
     var second: f64 = 0.0;
     var first_valid: bool = false;
     var second_valid: bool = false;
 
     /** Copies a nullable JSON measurement into the selected series. */
-    method set(value: ref Json, second: bool, divisor: f64) Result<void> {
+    method set(value: ref std.json.Json, second: bool, divisor: f64) Result<void> {
       if (not value.is_number()) {
         return Result.Ok;
       }
       if (second) {
-        this.second = (try value.as_f64()) / divisor;
+        this.second = try value.as_f64() / divisor;
         this.second_valid = true;
       } else {
-        this.first = (try value.as_f64()) / divisor;
+        this.first = try value.as_f64() / divisor;
         this.first_valid = true;
       }
 
       return Result.Ok;
+    }
+
+    /** Initializes owned storage and reports allocation failure. */
+    init() std.AllocationResult<void> {
+      this.id = try String("");
     }
   }
 
@@ -67,16 +79,20 @@ public module system_monitor {
     var bytes: i64 = 128;
 
     /** Creates an empty timestamped frame for one monitor. */
-    init(a: const ref HeapAllocator, name: const ref String, elapsed: i64) {
-      this.monitor = name.clone(a);
+    init(
+      a: const ref HeapAllocator,
+      name: const ref String,
+      elapsed: i64
+    ) std.AllocationResult<void> {
+      this.monitor = try name.clone(a);
       this.elapsed = elapsed;
-      this.readings = Vec<ResourceReading>(a, 16);
+      this.readings = try Vec<ResourceReading>(a, 16);
     }
 
     /** Accounts for identity storage before retaining a measurement. */
     method add(reading: ResourceReading) Result<void> {
       this.bytes = this.bytes + 96 + reading.id.length();
-      this.readings.push(reading);
+      try this.readings.push(reading);
 
       return Result.Ok;
     }
@@ -89,14 +105,14 @@ public module system_monitor {
     name: const ref String,
     elapsed: i64
   ) Result<ResourceFrame> {
-    var frame = ResourceFrame(a, name, elapsed);
+    var frame = try ResourceFrame(a, name, elapsed);
     if (name.equals_literal("service")) {
-      var totals = ResourceReading();
-      totals.id = String("services");
+      var totals = try ResourceReading();
+      totals.id = try String("services");
       totals.first_valid = data.message.is_empty();
       totals.second_valid = totals.first_valid;
       for (var i: i64 = 0; i < data.rows.len(); i = i + 1) {
-        var row: ref Json = try data.rows.at(i);
+        var row: ref std.json.Json = try data.rows.at(i);
         if ((try (try row.get("active")).as_string()).equals_literal("active")) {
           totals.first = totals.first + 1.0;
         }
@@ -108,8 +124,8 @@ public module system_monitor {
       return Result.Ok(frame);
     }
     for (var i: i64 = 0; i < data.rows.len(); i = i + 1) {
-      var row: ref Json = try data.rows.at(i);
-      var reading = ResourceReading();
+      var row: ref std.json.Json = try data.rows.at(i);
+      var reading = try ResourceReading();
       reading.id = try resource_identity(a, name, row);
       if (name.equals_literal("disk")) {
         try reading.set(try row.get("used_percent"), false, 1.0);
@@ -175,8 +191,8 @@ public module system_monitor {
     var evicted: bool = false;
 
     /** Creates empty shared history for resource tabs. */
-    init(a: const ref HeapAllocator) {
-      this.frames = Vec<ResourceFrame>(a, 16);
+    init(a: const ref HeapAllocator) std.AllocationResult<void> {
+      this.frames = try Vec<ResourceFrame>(a, 16);
     }
 
     /** Retains compact readings and evicts the oldest frames first. */
@@ -205,7 +221,7 @@ public module system_monitor {
         return Result.Ok;
       }
       this.bytes = this.bytes + frame.bytes;
-      this.frames.push(frame);
+      try this.frames.push(frame);
 
       return Result.Ok;
     }
@@ -297,21 +313,21 @@ public module system_monitor {
       height: i64,
       interval: i64
     ) Result<void> {
-      var id = selected.clone(a);
-      var title = String("DISK USAGE HISTORY (%)");
-      var legends = String("Used capacity| ");
+      var id = try selected.clone(a);
+      var title = try String("DISK USAGE HISTORY (%)");
+      var legends = try String("Used capacity| ");
       if (name.equals_literal("service")) {
-        title = String("SERVICE STATE HISTORY (count)");
-        legends = String("Active services|Failed services");
-        id = String("services");
+        title = try String("SERVICE STATE HISTORY (count)");
+        legends = try String("Active services|Failed services");
+        id = try String("services");
       }
       if (name.equals_literal("network")) {
-        title = String("NETWORK HISTORY (KiB/s)");
-        legends = String("Receive|Send");
+        title = try String("NETWORK HISTORY (KiB/s)");
+        legends = try String("Receive|Send");
       }
       if (name.equals_literal("temperature")) {
-        title = String("TEMPERATURE HISTORY (C)");
-        legends = String("Sensor|Critical threshold");
+        title = try String("TEMPERATURE HISTORY (C)");
+        legends = try String("Sensor|Critical threshold");
       }
       var low: f64 = 0.0;
       var high: f64 = 1.0;
@@ -351,54 +367,56 @@ public module system_monitor {
         }
       }
       if (not measured) {
-        title.append(" | waiting for data");
+        try title.append(" | waiting for data");
       }
-      var canvas = DotCanvas(a, style.width - 13, height);
+      var canvas = try DotCanvas(a, style.width - 13, height);
       try this.trace(canvas, name, id, true, begin, low, high, interval);
       try this.trace(canvas, name, id, false, begin, low, high, interval);
-      style.rule(out, 0, false);
+      try style.rule(out, 0, false);
       try style.panel_line(a, out, title, true);
-      style.rule(out, 1, false);
+      try style.rule(out, 1, false);
       for (var row: i64 = 0; row < height; row = row + 1) {
-        var label = String("");
+        var label = try String("");
         if (row == 0) {
-          label = resource_decimal(high);
+          label = try resource_decimal(high);
         } else if (row == height - 1) {
-          label = resource_decimal(low);
+          label = try resource_decimal(low);
         }
-        style.edge(out, "│", "|");
-        out.append(" ");
-        out.append(padded(try safe_text(a, label, 8), 8));
-        out.append(" ");
+        try style.edge(out, "│", "|");
+        try out.append(" ");
+        try out.append(try padded(try safe_text(a, label, 8), 8));
+        try out.append(" ");
         try canvas.render_row(out, row, style.colored);
-        out.append(" ");
-        style.edge(out, "│", "|");
-        out.append("\r\n");
+        try out.append(" ");
+        try style.edge(out, "│", "|");
+        try out.append("\r\n");
       }
-      var axis = String("elapsed +");
-      axis.append(decimal(_convert<f64>(begin) / 1000.0));
-      axis.append("s to +");
-      axis.append(decimal(_convert<f64>(begin + this.duration) / 1000.0));
-      axis.append("s");
+      var axis = try String("elapsed +");
+      try axis.append(try decimal(_convert<f64>(begin) / 1000.0));
+      try axis.append("s to +");
+      try axis.append(try decimal(_convert<f64>(begin + this.duration) / 1000.0));
+
+      try axis.append("s");
       if (this.evicted) {
-        axis.append(" | history trimmed");
+        try axis.append(" | history trimmed");
       }
       try style.panel_line(a, out, axis, false);
-      var parts = legends.split(a, b'|');
-      style.edge(out, "│", "|");
+      var parts = try legends.split(a, b'|');
+      try style.edge(out, "│", "|");
       var first_width = (style.width - 2) / 2;
       for (var i: i64 = 0; i < 2; i = i + 1) {
         var width = first_width;
         if (i == 1) {
           width = style.width - 2 - first_width;
         }
-        style.color(out, trend_color(i));
-        out.append(padded(try safe_text(a, try parts.get(i), width), width));
-        style.color(out, "\x1b[0m");
+        try style.color(out, trend_color(i));
+        try out.append(try padded(try safe_text(a, try parts.get(i), width), width));
+
+        try style.color(out, "\x1b[0m");
       }
-      style.edge(out, "│", "|");
-      out.append("\r\n");
-      style.rule(out, 2, false);
+      try style.edge(out, "│", "|");
+      try out.append("\r\n");
+      try style.rule(out, 2, false);
 
       return Result.Ok;
     }
