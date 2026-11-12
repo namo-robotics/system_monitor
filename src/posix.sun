@@ -50,6 +50,7 @@ public module system_monitor {
       offset = offset + n;
     }
   }
+
   /** Writes a literal without allocating, including while restoring the terminal. */
   function output(text: static_ptr<u8>) void {
     var offset: i64 = 0;
@@ -61,5 +62,4 @@ public module system_monitor {
       offset += count;
     }
   }
-
 }

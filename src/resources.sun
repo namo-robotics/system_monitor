@@ -111,9 +111,8 @@ public module system_monitor {
     var traffic = try Traffic();
     traffic.name = try line.substr(a, 0, colon);
     traffic.name.trim();
-    var rest = try 
-      line.substr(a, colon + 1, line.length() - colon - 1)
-    ;
+    var rest = try line.substr(a, colon + 1, line.length() - colon - 1);
+
     var parts = try rest.split_whitespace(a);
     if (parts.size() < 16) {
       return Result.Error(Error(1, "short interface counters"));
@@ -212,9 +211,8 @@ public module system_monitor {
       var available = try number(try vector_read(fields, i + 2));
       var percent: i64 = -1;
       if (capacity.ends_with("%")) {
-        var percent_text = try 
-          capacity.substr(a, 0, capacity.length() - 1)
-        ;
+        var percent_text = try capacity.substr(a, 0, capacity.length() - 1);
+
         percent = try number(percent_text);
         if (percent < 0) {
           return Result.Error(Error(1, "invalid filesystem percentage"));

@@ -52,9 +52,7 @@ public module system_monitor {
         match this.pending.find_char(10u8) {
           Option.Some(n) => {
             var line = try this.pending.substr(a, 0, n);
-            this.pending = try 
-              this.pending.substr(a, n + 1, this.pending.length() - n - 1)
-            ;
+            this.pending = try this.pending.substr(a, n + 1, this.pending.length() - n - 1);
             return Result.Ok(line);
           },
           Option.None => {}
