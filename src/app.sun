@@ -115,11 +115,17 @@ public module system_monitor {
       return Result.Ok(frame);
     }
 
+    /** Reads one frame from the selected source and transfers its ownership to the caller. */
+    method next_frame(a: ref HeapAllocator, elapsed: i64) Result<Frame> {
+      if (this.options.replay.is_empty()) {
+        return this.live_frame(a, elapsed);
+      }
+      return this.replay_frame(a);
+    }
+
     /** Publishes one complete sample to history and the optional recording. */
     method sample(a: ref HeapAllocator, elapsed: i64) Result<void> {
-      var frame = this.options.replay.is_empty() ? try this.live_frame(a, elapsed) : try this.replay_frame(
-        a
-      );
+      var frame = try this.next_frame(a, elapsed);
       if (this.finished) {
         return Result.Ok;
       }

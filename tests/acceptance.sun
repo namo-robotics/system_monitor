@@ -3,8 +3,10 @@ using std;
 using acceptance;
 
 /** Runs the native acceptance suite. */
-function main(argc: i32, argv: raw_ptr<raw_ptr<u8>>) AllocationResult<i32> {
-  return AllocationResult.Ok(try acceptance.entry(argc, argv));
+function main(argc: i32, argv: raw_ptr<raw_ptr<i8>>) AllocationResult<i32> {
+  return AllocationResult.Ok(
+    try acceptance.entry(argc, unsafe { _bitcast<raw_ptr<raw_ptr<u8>>>(argv); })
+  );
 }
 
 /** Owns helpers and process-level acceptance cases. */
@@ -82,7 +84,7 @@ public module acceptance {
     value: ref std.json.Json,
     key: static_ptr<u8>
   ) MonitorTestResult<String> {
-    return MonitorTestResult.Ok((try value.get(key)).to_string(a));
+    return MonitorTestResult.Ok(try (try value.get(key)).to_string(a));
   }
 
   /** Serializes the first process without retaining a borrow of its snapshot. */
@@ -91,7 +93,7 @@ public module acceptance {
     snapshot: ref std.json.Json
   ) MonitorTestResult<String> {
     var row: ref std.json.Json = try (try snapshot.get("processes")).at(0);
-    return MonitorTestResult.Ok(row.to_string(a));
+    return MonitorTestResult.Ok(try row.to_string(a));
   }
 
   /** Compares a row's identity without retaining a borrow of the row. */
@@ -108,18 +110,34 @@ public module acceptance {
     snapshot: ref std.json.Json,
     identity: const ref String
   ) MonitorTestResult<std.json.Json> {
-    var remaining = std.json.create_json_array(a);
+    var remaining = try std.json.create_json_array(a);
     var rows: ref std.json.Json = try snapshot.get("processes");
     for (var i: i64 = 0; i < rows.len(); i = i + 1) {
       var row: ref std.json.Json = try rows.at(i);
       if (not (try same_identity(row, identity))) {
-        try remaining.push(try std.json.parse_json(a, row.to_string(a)));
+        try remaining.push(try std.json.parse_json(a, try row.to_string(a)));
       }
     }
     return MonitorTestResult.Ok(remaining);
   }
 
-  var harness: String = try String("");
+  /** Owns the executable path after fallible initialization at program entry. */
+  class Harness {
+    var path: Option<String> = Option.None;
+
+    /** Starts without allocating an executable path. */
+    init() {}
+
+    /** Builds a child command using the currently running acceptance executable. */
+    method command(a: ref HeapAllocator) SystemResult<std.process.Command> {
+      return match this.path {
+        Option.Some(path) => SystemResult.Ok(try std.process.Command(a, path)),
+        Option.None => SystemResult.Error(Error(1, "acceptance executable is not initialized"))
+      };
+    }
+  }
+
+  var harness = Harness();
   /** Bounds child execution even if the application stops responding. */
   extern "C" function alarm(seconds: u32) u32;
 
@@ -130,12 +148,12 @@ public module acceptance {
     argv: raw_ptr<raw_ptr<u8>>
   ) MonitorTestResult<i32> {
     if (argc > 1) {
-      var arg = from_c_str(a, unsafe { _load<raw_ptr<u8>>(argv, 1); });
+      var arg = try from_c_str(a, unsafe { _load<raw_ptr<u8>>(argv, 1); });
       if (arg.equals_literal("--exec") and argc > 2) {
-        var program = from_c_str(a, unsafe { _load<raw_ptr<u8>>(argv, 2); });
+        var program = try from_c_str(a, unsafe { _load<raw_ptr<u8>>(argv, 2); });
         var cmd = try std.process.Command(a, program);
         for (var i: i64 = 3; i < _convert<i64>(argc); i = i + 1) {
-          try cmd.add_arg(from_c_str(a, unsafe { _load<raw_ptr<u8>>(argv, i); }));
+          try cmd.add_arg(try from_c_str(a, unsafe { _load<raw_ptr<u8>>(argv, i); }));
         }
         unsafe { alarm(15u32); };
         try std.process.exec(cmd);
@@ -186,14 +204,14 @@ public module acceptance {
   /** Runs acceptance checks or supplies their CPU and memory workload. */
   public function entry(argc: i32, argv: raw_ptr<raw_ptr<u8>>) AllocationResult<i32> {
     var a = make_heap_allocator();
-    harness = from_c_str(a, unsafe { _load<raw_ptr<u8>>(argv, 0); });
+    harness.path = Option.Some(try from_c_str(a, unsafe { _load<raw_ptr<u8>>(argv, 0); }));
     match run_checks(a, argc, argv) {
       MonitorTestResult.Ok(value) => {
         return AllocationResult.Ok(value);
       },
       (e: const ref IError) => {
         std.io.eprintln(try e.message());
-        return 1;
+        return AllocationResult.Ok(1);
       }
     };
   }
@@ -201,7 +219,7 @@ public module acceptance {
   /** Checks direct views and rejects conflicting process-only options. */
   function resource_views(a: ref HeapAllocator, binary: ref String) MonitorTestResult<void> {
     var names = try String("disk service network temperature");
-    var views = names.split_whitespace(a);
+    var views = try names.split_whitespace(a);
     for (var i: i64 = 0; i < views.size(); i = i + 1) {
       var args = try String("--monitor ");
       try args.append(try vector_read(views, i));
@@ -251,7 +269,7 @@ public module acceptance {
     args: const ref String
   ) MonitorTestResult<std.process.Command> {
     var cmd = try std.process.Command(a, binary);
-    var parts = args.split(a, b' ');
+    var parts = try args.split(a, b' ');
     for (var i: i64 = 0; i < parts.size(); i = i + 1) {
       if (not (try vector_read(parts, i)).is_empty()) {
         try cmd.add_arg(try vector_read(parts, i));
@@ -267,10 +285,10 @@ public module acceptance {
     args: String,
     code: i32
   ) MonitorTestResult<std.process.Output> {
-    var cmd = try std.process.Command(a, harness);
+    var cmd = try harness.command(a);
     try cmd.add_arg("--exec");
     try cmd.add_arg(binary);
-    var parts = args.split(a, b' ');
+    var parts = try args.split(a, b' ');
     for (var i: i64 = 0; i < parts.size(); i = i + 1) {
       if (not (try vector_read(parts, i)).is_empty()) {
         try cmd.add_arg(try vector_read(parts, i));
@@ -292,18 +310,24 @@ public module acceptance {
     /** Creates an isolated directory for recordings and fixture files. */
     init(a: ref HeapAllocator) MonitorTestResult<void> {
       this.path = try String("/tmp/process-monitor-test-XXXXXX");
-      try check(unsafe { mkdtemp(this.path.c_str()); } != null, "mkdtemp failed");
+      try check(unsafe { mkdtemp(try this.path.c_str()); } != null, "mkdtemp failed");
 
       return MonitorTestResult.Ok;
     }
 
     /** Removes fixture files after success or failure. */
     deinit() {
+      ignore_error(this.cleanup());
+    }
+
+    /** Attempts to remove fixtures while keeping allocation failures inside cleanup. */
+    method cleanup() SystemResult<void> {
       var a = make_heap_allocator();
       var cmd = try std.process.Command(a, "rm");
       try cmd.add_arg("-rf");
       try cmd.add_arg(this.path);
-      ignore_error(cmd.status());
+      try cmd.status();
+      return SystemResult.Ok;
     }
   }
 
@@ -347,7 +371,7 @@ public module acceptance {
 
   /** Rejects malformed options and checks informational commands. */
   function invalid_options(a: ref HeapAllocator, binary: ref String) MonitorTestResult<void> {
-    var cases = (try String(
+    var cases = try (try String(
       "--top 0|--sort network|--interval nan|--interval 0|--history -2|--memory-limit 0|--samples -1|--top|--ui invalid|--unknown x|--record x --replay y"
     )).split(
       a,
@@ -370,7 +394,7 @@ public module acceptance {
     binary: ref String,
     directory: ref String
   ) MonitorTestResult<void> {
-    var cmd = try std.process.Command(a, "build/acceptance");
+    var cmd = try harness.command(a);
     try cmd.add_arg("--workload");
     cmd.set_stdout(std.process.Stdio.Null);
     var worker = try Running(cmd);
@@ -382,7 +406,7 @@ public module acceptance {
     var result = try run(a, binary, args, 0);
     try check(not result.stdout().contains("\x1b"), "redirected output contains styling");
     var text = try std.io.read_to_string(a, path);
-    var lines = text.split(a, b'\n');
+    var lines = try text.split(a, b'\n');
     try check(lines.size() == 6, "recording frame count");
     var header = try std.json.parse_json(a, try lines.get(0));
     try check(
@@ -558,7 +582,7 @@ public module acceptance {
     );
     var resources_text = try request(a, base, "/api/v1/resources", "GET", "200");
     var resources = try std.json.parse_json(a, resources_text);
-    var names = (try String("disk service network temperature")).split_whitespace(a);
+    var names = try (try String("disk service network temperature")).split_whitespace(a);
     try check(
       try (try resources.get("timestamp_ms")).as_i64() > 0,
       "resource timestamp missing"
@@ -603,13 +627,13 @@ public module acceptance {
       try clients.push(try Running(client));
     }
     for (var i: i64 = 0; i < clients.size(); i = i + 1) {
-      var response = try (try (try clients.get(i)).child.collect(a));
+      var response = try (try clients.get(i)).child.collect(a);
       try check((response.status()) == 0, "concurrent HTTP request failed");
       var current = try std.json.parse_json(a, response.stdout());
       var snapshot = try field_text(a, current, "snapshot");
       var frames: ref std.json.Json = try current.get("history");
       try check(
-        (try frames.at(frames.len() - 1)).to_string(a).equals(
+        (try (try frames.at(frames.len() - 1)).to_string(a)).equals(
           snapshot
         ),
         "inconsistent publication"
@@ -618,10 +642,10 @@ public module acceptance {
     try server.stop();
     var recorded = try std.io.read_to_string(a, recording);
     try check(
-      recorded.contains((try view.get("snapshot")).to_string(a)),
+      recorded.contains(try (try view.get("snapshot")).to_string(a)),
       "web and recording differ"
     );
-    var lines = recorded.split(a, b'\n');
+    var lines = try recorded.split(a, b'\n');
     var first = try std.json.parse_json(a, try lines.get(1));
     var second = try std.json.parse_json(a, try lines.get(2));
     var identity = try label_fixture(a, first);
@@ -629,9 +653,9 @@ public module acceptance {
     try second.set(try String("processes"), remaining);
     var replay_text = try (try lines.get(0)).clone(a);
     try replay_text.append("\n");
-    try replay_text.append(first.to_string(a));
+    try replay_text.append(try first.to_string(a));
     try replay_text.append("\n");
-    try replay_text.append(second.to_string(a));
+    try replay_text.append(try second.to_string(a));
     try replay_text.append("\n");
     try std.io.write_string(recording, replay_text);
     args = try String("--ui web --interval .1 --port ");
@@ -648,7 +672,7 @@ public module acceptance {
       "replay status missing"
     );
     try check(
-      (try view.get("snapshot")).to_string(a).equals(second.to_string(a)),
+      (try (try view.get("snapshot")).to_string(a)).equals(try second.to_string(a)),
       "replay snapshot mismatch"
     );
     try check((try view.get("history")).len() == 2, "replay history mismatch");
@@ -657,7 +681,7 @@ public module acceptance {
     var history_text = try request_path(a, base, identity_path, "GET", "200");
     var points = try std.json.parse_json(a, history_text);
     try check(
-      (try (try points.at(0)).get("process")).to_string(a).equals(
+      (try (try (try points.at(0)).get("process")).to_string(a)).equals(
         try first_process_text(a, first)
       ),
       "identity history mismatch"
@@ -667,7 +691,7 @@ public module acceptance {
       "exited identity must leave a gap"
     );
     var snapshot = try request(a, base, "/api/v1/snapshot", "GET", "200");
-    try check(snapshot.equals(second.to_string(a)), "snapshot endpoint mismatch");
+    try check(snapshot.equals(try second.to_string(a)), "snapshot endpoint mismatch");
     var live_before = try std.json.parse_json(
       a,
       try request(a, base, "/api/v1/resources", "GET", "200")

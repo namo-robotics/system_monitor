@@ -79,7 +79,7 @@ public module acceptance {
       this.fd = unsafe { socket(2, 1, 0); };
       try check(this.fd >= 0, "socket failed");
       var size: u32 = 16;
-      try check(unsafe { try bind(this.fd, address.raw_data(), size); } == 0, "bind failed");
+      try check(unsafe { bind(this.fd, address.raw_data(), size); } == 0, "bind failed");
       try check(
         unsafe { getsockname(this.fd, address.raw_data(), _address_of<u32>(size)); } == 0,
         "getsockname failed"
@@ -161,7 +161,7 @@ public module acceptance {
       var buffer = try ContiguousBuffer<u8>(a, 65536);
       while (start.elapsed().as_millis() < duration) {
         var poller = try std.io.Poller(a);
-        poller.add_read(this.master);
+        try poller.add_read(this.master);
         var events = try poller.wait(std.time.create_duration_millis(10));
         if (events.size() > 0) {
           var count = unsafe { (read(this.master, buffer.raw_data(), 65536i64)); };
@@ -177,7 +177,7 @@ public module acceptance {
     /** Sends a short command sequence to the monitor. */
     method keys(text: String) MonitorTestResult<void> {
       try check(
-        unsafe { (write(this.master, text.c_str(), text.length())); } == text.length(),
+        unsafe { (write(this.master, try text.c_str(), text.length())); } == text.length(),
         "terminal write failed"
       );
 
@@ -216,7 +216,7 @@ public module acceptance {
     var keys = try String("12345");
     var titles = try String("PROCESS MONITOR|/ disk|/ service|/ network|/ temperature");
 
-    var expected = titles.split(a, b'|');
+    var expected = try titles.split(a, b'|');
     for (var i: i64 = 0; i < keys.length(); i = i + 1) {
       output.clear();
       try tty.keys(try keys.substr(a, i, 1));

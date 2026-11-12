@@ -133,7 +133,7 @@ public module system_monitor {
     var size: u64 = 8;
     var rc = unsafe {
       pm_sysctlbyname(
-        name.c_str(),
+        try name.c_str(),
         _bitcast<raw_ptr<u8>>(_address_of<u64>(bytes)),
         _address_of<u64>(size),
         null,
@@ -218,7 +218,7 @@ public module system_monitor {
 
   /** Reads one process while preserving unavailable CPU and memory values. */
   function darwin_process(a: const ref HeapAllocator, pid: i32) Result<Process> {
-    var p = Process();
+    var p = try Process();
     p.pid = _convert<i64>(pid);
     p.start = try darwin_identity(pid);
     var task = try ContiguousBuffer<u64>(a, 12);
@@ -231,7 +231,7 @@ public module system_monitor {
     var path = try ContiguousBuffer<u8>(a, 4096);
     path.fill(0);
     if (unsafe { pm_pidpath(pid, path.raw_data(), 4096); } > 0) {
-      p.exe = from_c_str(a, path.raw_data());
+      p.exe = try from_c_str(a, path.raw_data());
     }
     p.args = try darwin_arguments(a, pid);
     if (try darwin_identity(pid) != p.start) {
@@ -243,7 +243,7 @@ public module system_monitor {
 
   /** Samples every visible process, tolerating exits and permission failures. */
   function collect(a: ref HeapAllocator, elapsed: i64) Result<Frame> {
-    var f = Frame(a);
+    var f = try Frame(a);
     f.elapsed = elapsed;
     f.timestamp = (std.time.read_unix_time_millis());
     f.total_memory = try physical_memory();
