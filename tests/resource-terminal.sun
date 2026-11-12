@@ -10,7 +10,7 @@ public module system_monitor {
     valid: bool
   ) MonitorTestResult<ResourceFrame> {
     var frame = try ResourceFrame(a, try String("disk"), elapsed);
-    var reading = ResourceReading();
+    var reading = try ResourceReading();
     reading.id = try String("root");
     reading.first = 50.0;
     reading.first_valid = valid;
@@ -127,9 +127,9 @@ public module system_monitor {
   test_function resource_terminal_fits_and_tracks_selection() MonitorTestResult<void> {
     var a = make_heap_allocator();
     var data = try Resources(a);
-    var view = ResourceView(a);
+    var view = try ResourceView(a);
     var terminal = try Terminal(a, false);
-    var o = Options();
+    var o = try Options();
     o.monitor = try String("temperature");
     terminal.columns = 65;
     terminal.rows = 18;
@@ -148,7 +148,7 @@ public module system_monitor {
         text.contains("critical"),
       "table and chart included"
     );
-    var lines = text.split(a, 10u8);
+    var lines = try text.split(a, 10u8);
     try std.test.assert(lines.size() <= terminal.rows, "no vertical overflow");
     for (var i: i64 = 0; i < lines.size(); i = i + 1) {
       var width: i64 = 0;

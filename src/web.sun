@@ -71,7 +71,10 @@ public module system_monitor {
     }
 
     /** Routes read-only requests and contains parsing failures. */
-    public method handle_result(req: const ref Request, resp: ref Response) std.AllocationResult<void> {
+    public method handle_result(
+      req: const ref Request,
+      resp: ref Response
+    ) std.AllocationResult<void> {
       try resp.add_header("Cache-Control", "no-store");
       try resp.add_header("X-Content-Type-Options", "nosniff");
       if (not req.method_is("GET") and not req.method_is("HEAD")) {
@@ -101,7 +104,9 @@ public module system_monitor {
     public method handle(req: const ref Request, resp: ref Response) void {
       match this.handle_result(req, resp) {
         std.AllocationResult.Ok => {},
-        _ => { _panic("allocation failed in server callback"); }
+        _ => {
+          _panic("allocation failed in server callback");
+        }
       };
     }
 
@@ -112,7 +117,7 @@ public module system_monitor {
         not req.path_is("/api/v1/status") and not req.path_is("/api/v1/history") and
         not req.path_is("/api/v1/resources")) {
         resp.set_status(404);
-        resp.set_body("{\"error\":\"not found\"}");
+        try resp.set_body("{\"error\":\"not found\"}");
         return Result.Ok;
       }
       var text = try (this.read(a, req));
@@ -146,13 +151,13 @@ public module system_monitor {
               }
               try points.push(point);
             }
-            text = points.to_string(a);
+            text = try points.to_string(a);
             resp.set_status(200);
           },
           Option.None => {}
         };
       }
-      resp.set_body_string(text);
+      try resp.set_body_string(text);
 
       return Result.Ok;
     }
@@ -213,7 +218,7 @@ public module system_monitor {
     try view.set(try String("lines"), lines);
     try view.set(
       try String("rows"),
-      try std.json.parse_json(a, resource.rows.to_string(a))
+      try std.json.parse_json(a, try resource.rows.to_string(a))
     );
     try view.set(
       try String("message"),
@@ -247,7 +252,7 @@ public module system_monitor {
       this.service = try Resources(a);
       this.network = try Resources(a);
       this.temperature = try Resources(a);
-      this.state = try Shared<Publication>(a, Publication());
+      this.state = try Shared<Publication>(a, try Publication());
       this.enabled = not options.ui.equals_literal("terminal");
       if (not this.enabled) {
         return Result.Ok;
@@ -257,12 +262,12 @@ public module system_monitor {
         var guard = this.state.lock();
         guard.get().html = html;
       }
-      var cfg = Config(a);
+      var cfg = try Config(a);
       try cfg.add_listen(std.net.ipv4_loopback(), _convert<i32>(options.port));
       cfg.access_log = false;
       cfg.timeouts.drain_ms = 1000;
       var handlers = try Vec<DashboardHandler>(a, 1);
-      try handlers.push(DashboardHandler(try this.state.clone()));
+      try handlers.push(DashboardHandler(this.state.clone()));
 
       var server = match Server<DashboardHandler>(a, cfg, handlers) {
         ServerResult.Ok(value) => value,
@@ -293,12 +298,12 @@ public module system_monitor {
       if (not this.enabled) {
         return Result.Ok;
       }
-      var snapshot = (try frame_json(a, session.previous)).to_string(a);
+      var snapshot = try (try frame_json(a, session.previous)).to_string(a);
       var frames = try std.json.create_json_array(a);
       for (var i: i64 = 0; i < session.history.frames.size(); i = i + 1) {
         try frames.push(try frame_json(a, try session.history.frames.get(i)));
       }
-      var history = frames.to_string(a);
+      var history = try frames.to_string(a);
       var status = try std.json.create_json_object(a);
       try status.set(try String("version"), std.json.Json(1i64));
       try status.set(
@@ -329,7 +334,7 @@ public module system_monitor {
         try String("memory"),
         std.json.Json(session.options.memory)
       );
-      var text = status.to_string(a);
+      var text = try status.to_string(a);
       var guard = this.state.lock();
       guard.get().snapshot = snapshot;
       guard.get().history = history;
@@ -343,10 +348,10 @@ public module system_monitor {
       if (not this.enabled or now < this.resources_due) {
         return Result.Ok;
       }
-      (this.disk.sample(a, try String("disk"), now));
-      (this.service.sample(a, try String("service"), now));
-      (this.network.sample(a, try String("network"), now));
-      (this.temperature.sample(a, try String("temperature"), now));
+      (try this.disk.sample(a, try String("disk"), now));
+      (try this.service.sample(a, try String("service"), now));
+      (try this.network.sample(a, try String("network"), now));
+      (try this.temperature.sample(a, try String("temperature"), now));
       var views = try std.json.create_json_object(a);
       try views.set(
         try String("disk"),
@@ -374,7 +379,7 @@ public module system_monitor {
         try String("timestamp_ms"),
         std.json.Json(std.time.read_unix_time_millis())
       );
-      var text = publication.to_string(a);
+      var text = try publication.to_string(a);
       var guard = this.state.lock();
       guard.get().resources = text;
       this.resources_due = now + this.resource_interval;

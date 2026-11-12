@@ -56,16 +56,16 @@ public module system_monitor {
   test_function process_actions_validate_targets() MonitorTestResult<void> {
     var a = make_heap_allocator();
     var terminal = try Terminal(a, false);
-    var options = Options();
+    var options = try Options();
     options.monitor = try String("process");
-    terminal.apply_key(b't', options);
+    try terminal.apply_key(b't', options);
     try terminal.perform_action(a, options);
     try std.test.assert(
       terminal.notice.equals_literal("Select a visible process before sending a signal"),
       "empty selection rejected"
     );
     options.replay = try String("session.jsonl");
-    terminal.apply_key(b'k', options);
+    try terminal.apply_key(b'k', options);
     try terminal.perform_action(a, options);
     try std.test.assert(
       terminal.notice.equals_literal("Process actions are disabled during replay"),

@@ -4,23 +4,28 @@ public module system_monitor {
   using std;
 
   /** Sends an arrow sequence one byte at a time, as it may arrive from a terminal. */
-  function tab_test_arrow(terminal: ref Terminal, options: ref Options, final: u8) void {
-    terminal.apply_key(27u8, options);
-    terminal.apply_key(b'[', options);
-    terminal.apply_key(final, options);
+  function tab_test_arrow(
+    terminal: ref Terminal,
+    options: ref Options,
+    final: u8
+  ) AllocationResult<void> {
+    try terminal.apply_key(27u8, options);
+    try terminal.apply_key(b'[', options);
+    try terminal.apply_key(final, options);
+    return AllocationResult.Ok;
   }
 
   /** Opens Processes by default and reserves every numbered shortcut for a monitor. */
   test_function terminal_numbers_select_tabs() MonitorTestResult<void> {
     var a = make_heap_allocator();
     var terminal = try Terminal(a, false);
-    var options = Options();
+    var options = try Options();
     try std.test.assert(options.monitor.equals_literal("process"), "process default");
     for (var key: u8 = b'1'; key <= b'5'; key = key + 1u8) {
       terminal.paused = true;
       terminal.selected_pid = 42;
       terminal.pending_signal = 9;
-      terminal.apply_key(key, options);
+      try terminal.apply_key(key, options);
       try std.test.assert(
         options.monitor.equals(try monitor_choice(key)),
         "number selects monitor"
@@ -33,8 +38,8 @@ public module system_monitor {
       try std.test.assert_eq(terminal.pending_signal, 0i32);
     }
     try std.test.assert_eq(options.top, 10i64);
-    terminal.apply_key(b'1', options);
-    terminal.apply_key(b'f', options);
+    try terminal.apply_key(b'1', options);
+    try terminal.apply_key(b'f', options);
     try std.test.assert_eq(options.top, 5i64);
 
     return MonitorTestResult.Ok;
@@ -44,27 +49,27 @@ public module system_monitor {
   test_function terminal_arrow_focus_moves_between_tabs_and_rows() MonitorTestResult<void> {
     var a = make_heap_allocator();
     var terminal = try Terminal(a, false);
-    var options = Options();
-    tab_test_arrow(terminal, options, b'B');
+    var options = try Options();
+    try tab_test_arrow(terminal, options, b'B');
     try std.test.assert_eq(terminal.selected_row, 1i64);
-    tab_test_arrow(terminal, options, b'A');
+    try tab_test_arrow(terminal, options, b'A');
     try std.test.assert(not terminal.tabs_focused, "first up reaches first row");
-    tab_test_arrow(terminal, options, b'A');
+    try tab_test_arrow(terminal, options, b'A');
     try std.test.assert(terminal.tabs_focused, "up at first row focuses tabs");
-    tab_test_arrow(terminal, options, b'D');
+    try tab_test_arrow(terminal, options, b'D');
     try std.test.assert(options.monitor.equals_literal("temperature"), "left wraps to last tab");
-    tab_test_arrow(terminal, options, b'C');
+    try tab_test_arrow(terminal, options, b'C');
     try std.test.assert(options.monitor.equals_literal("process"), "right wraps to first tab");
-    tab_test_arrow(terminal, options, b'C');
+    try tab_test_arrow(terminal, options, b'C');
     try std.test.assert(options.monitor.equals_literal("disk"), "right selects disk");
-    tab_test_arrow(terminal, options, b'B');
+    try tab_test_arrow(terminal, options, b'B');
     try std.test.assert(not terminal.tabs_focused, "down enters content");
     try std.test.assert_eq(terminal.selected_row, 0i64);
-    tab_test_arrow(terminal, options, b'B');
+    try tab_test_arrow(terminal, options, b'B');
     try std.test.assert_eq(terminal.selected_row, 1i64);
-    terminal.apply_key(9u8, options);
+    try terminal.apply_key(9u8, options);
     try std.test.assert(terminal.tabs_focused, "Tab focuses tabs from a scrolled row");
-    terminal.apply_key(13u8, options);
+    try terminal.apply_key(13u8, options);
     try std.test.assert(not terminal.tabs_focused, "Enter returns to content");
     try std.test.assert_eq(terminal.selected_row, 1i64);
 
@@ -75,22 +80,22 @@ public module system_monitor {
   test_function terminal_tabs_do_not_signal_processes() MonitorTestResult<void> {
     var a = make_heap_allocator();
     var terminal = try Terminal(a, false);
-    var options = Options();
-    terminal.apply_key(9u8, options);
-    terminal.apply_key(b't', options);
-    terminal.apply_key(b'k', options);
+    var options = try Options();
+    try terminal.apply_key(9u8, options);
+    try terminal.apply_key(b't', options);
+    try terminal.apply_key(b'k', options);
     try std.test.assert_eq(terminal.pending_signal, 0i32);
     terminal.pending_signal = 9;
     try terminal.perform_action(a, options);
     try std.test.assert_eq(terminal.pending_signal, 0i32);
     try std.test.assert(terminal.notice.is_empty(), "no process action on tabs");
-    terminal.apply_key(b'2', options);
-    terminal.apply_key(b'k', options);
+    try terminal.apply_key(b'2', options);
+    try terminal.apply_key(b'k', options);
     try std.test.assert_eq(terminal.pending_signal, 0i32);
-    terminal.apply_key(27u8, options);
-    terminal.apply_key(b'[', options);
-    terminal.apply_key(b'5', options);
-    terminal.apply_key(b'~', options);
+    try terminal.apply_key(27u8, options);
+    try terminal.apply_key(b'[', options);
+    try terminal.apply_key(b'5', options);
+    try terminal.apply_key(b'~', options);
     try std.test.assert(
       options.monitor.equals_literal("disk"),
       "escape parameters are not shortcuts"

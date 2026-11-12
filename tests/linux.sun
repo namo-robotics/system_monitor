@@ -10,7 +10,7 @@ public module system_monitor {
     test_function pidfd_supports_signal_probe() MonitorTestResult<void> {
       var a = make_heap_allocator();
       var f = try collect(a, 0);
-      var own = pid();
+      var own = std.process.pid();
       for (var i: i64 = 0; i < f.processes.size(); i = i + 1) {
         var p = try f.processes.get(i);
         if (p.pid == _convert<i64>(own)) {

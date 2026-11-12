@@ -39,20 +39,19 @@ public module system_monitor {
     }
     var pid = try stat.substr(a, 0, begin);
     pid.trim();
-    var rest = try 
-      stat.substr(a, end + 1, stat.length() - end - 1)
-    ;
+    var rest = try stat.substr(a, end + 1, stat.length() - end - 1);
+
     var fields = try rest.split_whitespace(a);
     if (fields.size() < 22) {
       return Result.Error(Error(1, "short process stat"));
     }
-    var p = Process();
+    var p = try Process();
     p.pid = try number(pid);
     p.exe = try stat.substr(a, begin + 1, end - begin - 1);
     p.start = try number(try fields.get(19));
     p.ticks = try number(try fields.get(11)) + try number(try fields.get(12));
     p.rss = try number(try fields.get(21)) * page;
-    return Result.Ok(try p);
+    return Result.Ok(p);
   }
 
   /** Reads the host's physical memory total from procfs. */
@@ -78,10 +77,16 @@ public module system_monitor {
     var cmd = try base.clone(a);
     try cmd.append("/cmdline");
     var arguments = std.io.read_to_string(a, cmd);
+    var unavailable = false;
     match arguments {
-      (error: const ref Error) => {},
-      _ => { p.args = try arguments; }
+      (error: const ref Error) => {
+        unavailable = true;
+      },
+      _ => {}
     };
+    if (not unavailable) {
+      p.args = try arguments;
+    }
     var exe = try base.clone(a);
     try exe.append("/exe");
     var buffer = try ContiguousBuffer<u8>(a, 4096);

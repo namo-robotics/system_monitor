@@ -39,14 +39,14 @@ public module system_monitor {
     /** Checks that pid reuse does not inherit cpu. */
     test_function pid_reuse_does_not_inherit_cpu() MonitorTestResult<void> {
       var a = make_heap_allocator();
-      var old = Frame(a);
-      var now = Frame(a);
-      var p = Process();
+      var old = try Frame(a);
+      var now = try Frame(a);
+      var p = try Process();
       p.pid = 7;
       p.start = 1;
       p.ticks = 100;
       try old.processes.push(p);
-      var q = Process();
+      var q = try Process();
       q.pid = 7;
       q.start = 2;
       q.ticks = 200;
@@ -63,16 +63,16 @@ public module system_monitor {
       var a = make_heap_allocator();
       var h = try History(a);
       h.duration = 1000;
-      var f = Frame(a);
+      var f = try Frame(a);
       f.elapsed = 0;
       try h.add(f);
-      var g = Frame(a);
+      var g = try Frame(a);
       g.elapsed = 2000;
       try h.add(g);
       try std.test.assert_eq(h.frames.size(), 1i64);
       try std.test.assert(h.evicted, "eviction reported");
       h.limit = 1;
-      var huge = Frame(a);
+      var huge = try Frame(a);
       huge.elapsed = 3000;
       try h.add(huge);
       try std.test.assert_eq(h.frames.size(), 0i64);
@@ -84,7 +84,7 @@ public module system_monitor {
     /** Checks that ros labels and roundtrip. */
     test_function ros_labels_and_roundtrip() MonitorTestResult<void> {
       var a = make_heap_allocator();
-      var p = Process();
+      var p = try Process();
       p.pid = 42;
       p.start = 123;
       p.exe = try String("/opt/ros/component_container");
@@ -94,7 +94,7 @@ public module system_monitor {
         p.label.equals_literal("/robot/camera [shared container]"),
         "ROS label"
       );
-      var f = Frame(a);
+      var f = try Frame(a);
       try f.processes.push(p);
       var j = try frame_json(a, f);
       var copy = try decode_frame(a, j);
@@ -107,12 +107,12 @@ public module system_monitor {
     /** Checks that ranking keeps all samples and breaks ties. */
     test_function ranking_keeps_all_samples_and_breaks_ties() MonitorTestResult<void> {
       var a = make_heap_allocator();
-      var f = Frame(a);
-      var p = Process();
+      var f = try Frame(a);
+      var p = try Process();
       p.pid = 2;
       p.cpu = 10.0;
       try f.processes.push(p);
-      var q = Process();
+      var q = try Process();
       q.pid = 1;
       q.cpu = 10.0;
       try f.processes.push(q);
@@ -132,8 +132,8 @@ public module system_monitor {
       var a = make_heap_allocator();
       var labels = try Labels(a);
       labels.document = try std.json.parse_json(a, "{\"7\":\"camera\",\"8\":\"late\"}");
-      var f = Frame(a);
-      var p = Process();
+      var f = try Frame(a);
+      var p = try Process();
       p.pid = 7;
       p.start = 1;
       try f.processes.push(p);
@@ -142,13 +142,13 @@ public module system_monitor {
         (try f.processes.get(0)).label.equals_literal("camera"),
         "initial label"
       );
-      var next = Frame(a);
-      var q = Process();
+      var next = try Frame(a);
+      var q = try Process();
       q.pid = 7;
       q.start = 2;
       q.label = try String("original");
       try next.processes.push(q);
-      var late = Process();
+      var late = try Process();
       late.pid = 8;
       late.start = 3;
       late.label = try String("unbound");
@@ -169,14 +169,14 @@ public module system_monitor {
     /** Verifies resident memory percentages and normal CPU deltas. */
     test_function metrics_use_elapsed_time_and_physical_memory() MonitorTestResult<void> {
       var a = make_heap_allocator();
-      var old = Frame(a);
-      var next = Frame(a);
-      var p = Process();
+      var old = try Frame(a);
+      var next = try Frame(a);
+      var p = try Process();
       p.pid = 1;
       p.start = 8;
       p.ticks = 100;
       try old.processes.push(p);
-      var q = Process();
+      var q = try Process();
       q.pid = 1;
       q.start = 8;
       q.ticks = 150;
@@ -195,14 +195,14 @@ public module system_monitor {
     test_function exited_process_history_and_missing_gaps() MonitorTestResult<void> {
       var a = make_heap_allocator();
       var history = try History(a);
-      var f = Frame(a);
-      var p = Process();
+      var f = try Frame(a);
+      var p = try Process();
       p.pid = 2;
       p.start = 3;
       p.cpu = 50.0;
       try f.processes.push(p);
       try history.add(f);
-      var next = Frame(a);
+      var next = try Frame(a);
       next.elapsed = 1000;
       try history.add(next);
       try std.test.assert(
@@ -220,7 +220,7 @@ public module system_monitor {
     /** Filters ROS remaps to the ROS argument section. */
     test_function ordinary_arguments_do_not_rename_processes() MonitorTestResult<void> {
       var a = make_heap_allocator();
-      var p = Process();
+      var p = try Process();
       p.exe = try String("/bin/tool");
       p.args = try String("tool\0__node:=fake\0");
       try label_process(a, p);
@@ -242,8 +242,8 @@ public module system_monitor {
     /** Verifies copied history owns display data independently of the live frame. */
     test_function history_copy_does_not_alias_live_samples() MonitorTestResult<void> {
       var a = make_heap_allocator();
-      var f = Frame(a);
-      var p = Process();
+      var f = try Frame(a);
+      var p = try Process();
       p.label = try String("before");
       try f.processes.push(p);
       var copy = try f.copy(a);
@@ -261,13 +261,13 @@ public module system_monitor {
   /** Checks that changing rankings never modifies the resource measurements. */
   test_function memory_sort_preserves_cpu_samples() MonitorTestResult<void> {
     var a = make_heap_allocator();
-    var f = Frame(a);
-    var p = Process();
+    var f = try Frame(a);
+    var p = try Process();
     p.pid = 1;
     p.cpu = 7.0;
     p.rss = 10;
     try f.processes.push(p);
-    var q = Process();
+    var q = try Process();
     q.pid = 2;
     q.cpu = 3.0;
     q.rss = 20;

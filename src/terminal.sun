@@ -94,7 +94,7 @@ public module system_monitor {
 
     /** Applies one terminal command to display state only. */
     method apply_key(ch: u8, o: ref Options) std.AllocationResult<void> {
-      if (this.arrow_key(ch, o)) {
+      if (try this.arrow_key(ch, o)) {
         return std.AllocationResult.Ok;
       }
       if (ch == b'q' or ch == 3u8) {
@@ -141,9 +141,9 @@ public module system_monitor {
       } else if (ch == b'a') {
         o.top = 0;
       }
-    
+
       return std.AllocationResult.Ok;
-}
+    }
 
     /** Changes monitors without carrying a process action or selection into the new view. */
     method select_tab(ch: u8, o: ref Options, focused: bool) std.AllocationResult<void> {

@@ -15,7 +15,7 @@ public module system_monitor {
     var options: Options;
     var history: History;
     var labels: Labels;
-    var replay: Replay ;
+    var replay: Replay;
     var recording: std.io.File = std.io.File();
     var previous: Frame;
     var finished: bool = false;
@@ -81,7 +81,7 @@ public module system_monitor {
       if (this.options.record.is_empty()) {
         return Result.Ok;
       }
-      if (std.io.exists(this.options.record)) {
+      if (try std.io.exists(this.options.record)) {
         return Result.Error(Error(1, "recording file already exists; choose a new path"));
       }
       try this.recording.open(this.options.record, std.io.FileMode.Write);
@@ -117,8 +117,9 @@ public module system_monitor {
 
     /** Publishes one complete sample to history and the optional recording. */
     method sample(a: ref HeapAllocator, elapsed: i64) Result<void> {
-      var frame = this.options.replay.is_empty() ?
-        try this.live_frame(a, elapsed) : try this.replay_frame(a);
+      var frame = this.options.replay.is_empty() ? try this.live_frame(a, elapsed) : try this.replay_frame(
+        a
+      );
       if (this.finished) {
         return Result.Ok;
       }

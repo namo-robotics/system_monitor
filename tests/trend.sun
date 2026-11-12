@@ -5,9 +5,9 @@ public module system_monitor {
 
   /** Builds a fixture with opposite CPU and memory rankings. */
   function trend_fixture(a: const ref HeapAllocator) std.AllocationResult<Frame> {
-    var frame = Frame(a);
+    var frame = try Frame(a);
     for (var pid: i64 = 1; pid <= 7; pid = pid + 1) {
-      var process = Process();
+      var process = try Process();
       process.pid = pid;
       process.start = 10;
       process.cpu = _convert<f64>(pid);
@@ -91,9 +91,9 @@ public module system_monitor {
     var a = make_heap_allocator();
     var history = try History(a);
     for (var i: i64 = 0; i < 3; i = i + 1) {
-      var frame = Frame(a);
+      var frame = try Frame(a);
       frame.elapsed = i * 1000;
-      var p = Process();
+      var p = try Process();
       p.pid = 7;
       p.start = 10;
       p.cpu = 50.0;
@@ -102,7 +102,7 @@ public module system_monitor {
       }
       try history.add(frame);
     }
-    var p = Process();
+    var p = try Process();
     p.pid = 7;
     p.start = 10;
     var item = try TrendSeries(a, p);
@@ -130,7 +130,7 @@ public module system_monitor {
     var history = try History(a);
     history.duration = 1000;
     var graph = try TrendGraph(a);
-    var first = Frame(a);
+    var first = try Frame(a);
     first.elapsed = 5000;
     try history.add(first);
     try std.test.assert_eq((graph.begin(history)), 5000i64);
@@ -143,7 +143,7 @@ public module system_monitor {
       ),
       0i64
     );
-    var middle = Frame(a);
+    var middle = try Frame(a);
     middle.elapsed = 35000;
     try history.add(middle);
     try std.test.assert_eq(history.frames.size(), 1i64);
@@ -157,11 +157,11 @@ public module system_monitor {
       ),
       60i64
     );
-    var full = Frame(a);
+    var full = try Frame(a);
     full.elapsed = 65000;
     try history.add(full);
     try std.test.assert_eq((graph.begin(history)), 5000i64);
-    var later = Frame(a);
+    var later = try Frame(a);
     later.elapsed = 75000;
     try history.add(later);
     try std.test.assert_eq((graph.begin(history)), 15000i64);
@@ -243,24 +243,24 @@ public module system_monitor {
   test_function terminal_arrows_move_selection() MonitorTestResult<void> {
     var a = make_heap_allocator();
     var terminal = try Terminal(a, false);
-    var options = Options();
-    terminal.apply_key(27u8, options);
-    terminal.apply_key(b'[', options);
+    var options = try Options();
+    try terminal.apply_key(27u8, options);
+    try terminal.apply_key(b'[', options);
     try std.test.assert_eq(terminal.selected_row, 0i64);
-    terminal.apply_key(b'B', options);
+    try terminal.apply_key(b'B', options);
     try std.test.assert_eq(terminal.selected_row, 1i64);
-    terminal.apply_key(27u8, options);
-    terminal.apply_key(b'O', options);
-    terminal.apply_key(b'A', options);
+    try terminal.apply_key(27u8, options);
+    try terminal.apply_key(b'O', options);
+    try terminal.apply_key(b'A', options);
     try std.test.assert_eq(terminal.selected_row, 0i64);
     terminal.move_selection(false);
     try std.test.assert_eq(terminal.selected_row, 0i64);
-    terminal.apply_key(27u8, options);
-    terminal.apply_key(b'[', options);
-    terminal.apply_key(b'5', options);
-    terminal.apply_key(b'~', options);
+    try terminal.apply_key(27u8, options);
+    try terminal.apply_key(b'[', options);
+    try terminal.apply_key(b'5', options);
+    try terminal.apply_key(b'~', options);
     try std.test.assert_eq(options.top, 10i64);
-    terminal.apply_key(b'j', options);
+    try terminal.apply_key(b'j', options);
     try std.test.assert_eq(terminal.selected_row, 0i64);
 
     return MonitorTestResult.Ok;
