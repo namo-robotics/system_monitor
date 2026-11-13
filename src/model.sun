@@ -4,23 +4,20 @@ public module system_monitor {
   using std;
 
   /** Copies a checked buffer element without keeping its storage borrowed. */
-  function buffer_value<T: _Primitive>(
-    buffer: const ref ContiguousBuffer<T>,
-    index: i64
-  ) AccessResult<T> {
-    var value: T = try buffer.get(index);
-    return AccessResult.Ok(value);
+  function buffer_value<T: _Primitive>(buffer: const ref ContiguousBuffer<T>, index: i64) T throws {
+    var value: T = buffer.get(index);
+    return value;
   }
 
   /** Copies a checked vector element without keeping its storage borrowed. */
-  function vector_value<T: _Primitive>(values: const ref Vec<T>, index: i64) AccessResult<T> {
-    var value: T = try values.get(index);
-    return AccessResult.Ok(value);
+  function vector_value<T: _Primitive>(values: const ref Vec<T>, index: i64) T throws {
+    var value: T = values.get(index);
+    return value;
   }
 
   /** Borrows a checked vector element for read-only access. */
-  function vector_read<T>(values: const ref Vec<T>, index: i64) AccessResult<const ref T> {
-    return AccessResult.Ok(try values.get(index));
+  function vector_read<T>(values: const ref Vec<T>, index: i64) const ref T throws {
+    return values.get(index);
   }
 
   /** Owns the identity, metadata, and measurements of one process. */
@@ -36,19 +33,19 @@ public module system_monitor {
     var label: String;
 
     /** Formats a stable identity from the PID and process start marker. */
-    method id() std.AllocationResult<String> {
-      var s = try String("");
-      try s.append(this.pid);
-      try s.append(":");
-      try s.append(this.start);
-      return std.AllocationResult.Ok(s);
+    method id() String throws {
+      var s = String("");
+      s.append(this.pid);
+      s.append(":");
+      s.append(this.start);
+      return s;
     }
 
     /** Initializes owned storage and reports allocation failure. */
-    init() std.AllocationResult<void> {
-      this.exe = try String("");
-      this.args = try String("");
-      this.label = try String("");
+    init() throws {
+      this.exe = String("");
+      this.args = String("");
+      this.label = String("");
     }
   }
 
@@ -61,40 +58,40 @@ public module system_monitor {
     var processes: Vec<Process>;
 
     /** Initializes owned state and resources for this object. */
-    init(alloc: const ref HeapAllocator) std.AllocationResult<void> {
-      this.processes = try Vec<Process>(alloc, 64);
+    init(alloc: const ref HeapAllocator) throws {
+      this.processes = Vec<Process>(alloc, 64);
     }
 
     /** Copies display measurements while keeping raw baselines in the live frame. */
-    method copy(a: const ref HeapAllocator) Result<Frame> {
-      var out = try Frame(a);
+    method copy(a: const ref HeapAllocator) Frame throws {
+      var out = Frame(a);
       out.timestamp = this.timestamp;
       out.elapsed = this.elapsed;
       out.total_memory = this.total_memory;
       out.inaccessible = this.inaccessible;
       for (var i: i64 = 0; i < (this.processes.size()); i = i + 1) {
-        var p: ref Process = try this.processes.get(i);
-        var q = try Process();
+        var p: ref Process = this.processes.get(i);
+        var q = Process();
         q.pid = p.pid;
         q.start = p.start;
         q.rss = p.rss;
         q.cpu = p.cpu;
         q.memory = p.memory;
-        q.exe = try p.exe.clone(a);
-        q.label = try p.label.clone(a);
-        try out.processes.push(q);
+        q.exe = p.exe.clone(a);
+        q.label = p.label.clone(a);
+        out.processes.push(q);
       }
-      return Result.Ok(out);
+      return out;
     }
 
     /** Estimates owned storage conservatively for history budgeting. */
-    method cost() Result<i64> {
+    method cost() i64 throws {
       var n: i64 = _sizeof<Frame>() + 128 + this.processes.capacity() * _sizeof<Process>();
       for (var i: i64 = 0; i < (this.processes.size()); i = i + 1) {
-        var p: ref Process = try this.processes.get(i);
+        var p: ref Process = this.processes.get(i);
         n = n + 384 + p.exe.capacity() + p.args.capacity() + p.label.capacity();
       }
-      return Result.Ok(n);
+      return n;
     }
   }
 }

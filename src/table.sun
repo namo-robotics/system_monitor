@@ -35,45 +35,41 @@ public module system_monitor {
     }
 
     /** Sets an ANSI style only for interactive output. */
-    method color(out: ref String, code: static_ptr<u8>) std.AllocationResult<void> {
+    method color(out: ref String, code: static_ptr<u8>) void throws {
       if (this.colored) {
-        try out.append(code);
+        out.append(code);
       }
 
-      return std.AllocationResult.Ok;
+      return;
     }
 
     /** Writes a Unicode border in terminals and an ASCII equivalent in pipes. */
-    method edge(
-      out: ref String,
-      glyph: static_ptr<u8>,
-      ascii: static_ptr<u8>
-    ) std.AllocationResult<void> {
-      try this.color(out, "\x1b[0;36m");
+    method edge(out: ref String, glyph: static_ptr<u8>, ascii: static_ptr<u8>) void throws {
+      this.color(out, "\x1b[0;36m");
       if (this.colored) {
-        try out.append(glyph);
+        out.append(glyph);
       } else {
-        try out.append(ascii);
+        out.append(ascii);
       }
-      try this.color(out, "\x1b[0m");
+      this.color(out, "\x1b[0m");
 
-      return std.AllocationResult.Ok;
+      return;
     }
 
     /** Draws a top, middle, or bottom rule with optional column junctions. */
-    method rule(out: ref String, position: i64, divided: bool) std.AllocationResult<void> {
+    method rule(out: ref String, position: i64, divided: bool) void throws {
       if (position == 0) {
-        try this.edge(out, "╭", "+");
+        this.edge(out, "╭", "+");
       } else if (position == 1) {
-        try this.edge(out, "├", "+");
+        this.edge(out, "├", "+");
       } else {
-        try this.edge(out, "╰", "+");
+        this.edge(out, "╰", "+");
       }
       var count: i64 = 1;
       if (divided) {
         count = 5;
       }
-      try this.color(out, "\x1b[36m");
+      this.color(out, "\x1b[36m");
       for (var col: i64 = 0; col < count; col = col + 1) {
         var size = this.width - 2;
         if (divided) {
@@ -81,32 +77,32 @@ public module system_monitor {
         }
         for (var i: i64 = 0; i < size; i = i + 1) {
           if (this.colored) {
-            try out.append("─");
+            out.append("─");
           } else {
-            try out.append("-");
+            out.append("-");
           }
         }
         if (col + 1 < count) {
           if (position == 0) {
-            try this.edge(out, "┬", "+");
+            this.edge(out, "┬", "+");
           } else if (position == 1) {
-            try this.edge(out, "┼", "+");
+            this.edge(out, "┼", "+");
           } else {
-            try this.edge(out, "┴", "+");
+            this.edge(out, "┴", "+");
           }
-          try this.color(out, "\x1b[36m");
+          this.color(out, "\x1b[36m");
         }
       }
       if (position == 0) {
-        try this.edge(out, "╮", "+");
+        this.edge(out, "╮", "+");
       } else if (position == 1) {
-        try this.edge(out, "┤", "+");
+        this.edge(out, "┤", "+");
       } else {
-        try this.edge(out, "╯", "+");
+        this.edge(out, "╯", "+");
       }
-      try out.append("\r\n");
+      out.append("\r\n");
 
-      return std.AllocationResult.Ok;
+      return;
     }
 
     /** Clips and pads text before applying color, keeping ANSI bytes out of widths. */
@@ -117,31 +113,31 @@ public module system_monitor {
       width: i64,
       right: bool,
       selected: bool
-    ) Result<void> {
-      var clean = try safe_text(a, text, width);
+    ) void throws {
+      var clean = safe_text(a, text, width);
       if (text.length() > width and width > 0) {
-        try clean.set_at(width - 1, b'~');
+        clean.set_at(width - 1, b'~');
       }
       if (selected) {
-        try this.color(out, "\x1b[1;97;44m");
+        this.color(out, "\x1b[1;97;44m");
       }
-      try out.append(" ");
+      out.append(" ");
       if (right) {
         for (var i = clean.length(); i < width; i = i + 1) {
-          try out.append(" ");
+          out.append(" ");
         }
       }
-      try out.append(clean);
+      out.append(clean);
       if (not right) {
         for (var i = clean.length(); i < width; i = i + 1) {
-          try out.append(" ");
+          out.append(" ");
         }
       }
-      try out.append(" ");
-      try this.color(out, "\x1b[0m");
-      try this.edge(out, "│", "|");
+      out.append(" ");
+      this.color(out, "\x1b[0m");
+      this.edge(out, "│", "|");
 
-      return Result.Ok;
+      return;
     }
 
     /** Writes one bounded line inside a full-width history panel. */
@@ -150,15 +146,15 @@ public module system_monitor {
       out: ref String,
       text: const ref String,
       accent: bool
-    ) Result<void> {
-      try this.edge(out, "│", "|");
+    ) void throws {
+      this.edge(out, "│", "|");
       if (accent) {
-        try this.color(out, "\x1b[1;32m");
+        this.color(out, "\x1b[1;32m");
       }
-      try this.cell(a, out, text, this.width - 4, false, false);
-      try out.append("\r\n");
+      this.cell(a, out, text, this.width - 4, false, false);
+      out.append("\r\n");
 
-      return Result.Ok;
+      return;
     }
   }
 }

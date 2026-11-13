@@ -10,8 +10,8 @@ public module system_monitor {
   extern "C" function pm_readlink(path: raw_ptr<u8>, out: raw_ptr<u8>, size: i64) i64 as "readlink";
 
   /** Returns the operating system CPU counter frequency. */
-  function clock_ticks() Result<i64> {
-    return Result.Ok(unsafe { pm_sysconf(2); });
+  function clock_ticks() i64 throws {
+    return unsafe { pm_sysconf(2); };
   }
 
   /** Parses procfs fields without treating spaces in process names as separators. */
@@ -19,7 +19,7 @@ public module system_monitor {
     a: const ref HeapAllocator,
     stat: const ref String,
     page: i64
-  ) Result<Process> {
+  ) Process throws {
     var end: i64 = -1;
     var begin: i64 = -1;
     match stat.find_char(40u8) {
@@ -35,37 +35,37 @@ public module system_monitor {
       Option.None => {}
     };
     if (begin < 1 or end <= begin) {
-      return Result.Error(Error(1, "malformed process stat"));
+      throw Error(1, "malformed process stat");
     }
-    var pid = try stat.substr(a, 0, begin);
+    var pid = stat.substr(a, 0, begin);
     pid.trim();
-    var rest = try stat.substr(a, end + 1, stat.length() - end - 1);
+    var rest = stat.substr(a, end + 1, stat.length() - end - 1);
 
-    var fields = try rest.split_whitespace(a);
+    var fields = rest.split_whitespace(a);
     if (fields.size() < 22) {
-      return Result.Error(Error(1, "short process stat"));
+      throw Error(1, "short process stat");
     }
-    var p = try Process();
-    p.pid = try number(pid);
-    p.exe = try stat.substr(a, begin + 1, end - begin - 1);
-    p.start = try number(try fields.get(19));
-    p.ticks = try number(try fields.get(11)) + try number(try fields.get(12));
-    p.rss = try number(try fields.get(21)) * page;
-    return Result.Ok(p);
+    var p = Process();
+    p.pid = number(pid);
+    p.exe = stat.substr(a, begin + 1, end - begin - 1);
+    p.start = number(fields.get(19));
+    p.ticks = number(fields.get(11)) + number(fields.get(12));
+    p.rss = number(fields.get(21)) * page;
+    return p;
   }
 
   /** Reads the host's physical memory total from procfs. */
-  function physical_memory(a: ref HeapAllocator) Result<i64> {
-    var mem = try std.io.read_to_string(a, "/proc/meminfo");
-    var lines = try mem.split(a, 10u8);
+  function physical_memory(a: ref HeapAllocator) i64 throws {
+    var mem = std.io.read_to_string(a, "/proc/meminfo");
+    var lines = mem.split(a, 10u8);
     for (var i: i64 = 0; i < lines.size(); i = i + 1) {
-      var line = try vector_read(lines, i);
+      var line = vector_read(lines, i);
       if (line.starts_with("MemTotal:")) {
-        var parts = try line.split_whitespace(a);
-        return Result.Ok(try number(try parts.get(1)) * 1024);
+        var parts = line.split_whitespace(a);
+        return number(parts.get(1)) * 1024;
       }
     }
-    return Result.Error(Error(1, "physical memory total unavailable"));
+    throw Error(1, "physical memory total unavailable");
   }
 
   /** Reads optional arguments and executable metadata without dropping a sample. */
@@ -73,47 +73,39 @@ public module system_monitor {
     a: ref HeapAllocator,
     base: const ref String,
     p: ref Process
-  ) std.Result<void> {
-    var cmd = try base.clone(a);
-    try cmd.append("/cmdline");
-    var arguments = std.io.read_to_string(a, cmd);
-    var unavailable = false;
-    match arguments {
-      (error: const ref Error) => {
-        unavailable = true;
-      },
-      _ => {}
-    };
-    if (not unavailable) {
-      p.args = try arguments;
-    }
-    var exe = try base.clone(a);
-    try exe.append("/exe");
-    var buffer = try ContiguousBuffer<u8>(a, 4096);
-    var n = unsafe { pm_readlink(try exe.c_str(), buffer.raw_data(), 4095i64); };
+  ) void throws {
+    var cmd = base.clone(a);
+    cmd.append("/cmdline");
+    try {
+      p.args = std.io.read_to_string(a, cmd);
+    } catch (error: Error) {}
+    var exe = base.clone(a);
+    exe.append("/exe");
+    var buffer = ContiguousBuffer<u8>(a, 4096);
+    var n = unsafe { pm_readlink(exe.c_str(), buffer.raw_data(), 4095i64); };
     if (n > 0) {
-      p.exe = try String(a, buffer, n);
+      p.exe = String(a, buffer, n);
     }
 
-    return std.Result.Ok;
+    return;
   }
 
   /** Reads a process and verifies that its identity survived metadata collection. */
-  function linux_process(a: ref HeapAllocator, name: const ref String, page: i64) Result<Process> {
-    var base = try String("/proc/");
-    try base.append(name);
-    var path = try base.clone(a);
-    try path.append("/stat");
-    var stat = try std.io.read_to_string(a, path);
-    var p = try parse_stat(a, stat, page);
-    try linux_metadata(a, base, p);
-    var confirm = try std.io.read_to_string(a, path);
-    var check = try parse_stat(a, confirm, page);
+  function linux_process(a: ref HeapAllocator, name: const ref String, page: i64) Process throws {
+    var base = String("/proc/");
+    base.append(name);
+    var path = base.clone(a);
+    path.append("/stat");
+    var stat = std.io.read_to_string(a, path);
+    var p = parse_stat(a, stat, page);
+    linux_metadata(a, base, p);
+    var confirm = std.io.read_to_string(a, path);
+    var check = parse_stat(a, confirm, page);
     if (check.start != p.start) {
-      return Result.Error(Error(1, "process changed during collection"));
+      throw Error(1, "process changed during collection");
     }
-    try label_process(a, p);
-    return Result.Ok(p);
+    label_process(a, p);
+    return p;
   }
 
   /** Calls Linux directly for operations without musl libc wrappers. */
@@ -141,60 +133,64 @@ public module system_monitor {
     start: i64,
     signal: i32,
     fd: i32
-  ) Result<void> {
-    var path = try String("/proc/");
-    try path.append(pid);
-    try path.append("/stat");
-    var stat = try std.io.read_to_string(a, path);
-    var process = try parse_stat(a, stat, 1);
+  ) void throws {
+    var path = String("/proc/");
+    path.append(pid);
+    path.append("/stat");
+    var stat = std.io.read_to_string(a, path);
+    var process = parse_stat(a, stat, 1);
     if (process.start != start) {
-      return Result.Error(Error(1, "process identity changed"));
+      throw Error(1, "process identity changed");
     }
     if (unsafe { pm_pidfd_signal(fd, signal); } != 0) {
-      return Result.Error(Error(1, "signal rejected"));
+      throw Error(1, "signal rejected");
     }
 
-    return Result.Ok;
+    return;
   }
 
   /** Pins the process, verifies its start time, and sends the requested signal. */
-  function signal_process(a: ref HeapAllocator, pid: i32, start: i64, signal: i32) Result<void> {
+  function signal_process(a: ref HeapAllocator, pid: i32, start: i64, signal: i32) void throws {
     var fd = unsafe { pm_pidfd_open(pid, 0); };
     if (fd < 0) {
-      return Result.Error(Error(1, "process handle unavailable"));
+      throw Error(1, "process handle unavailable");
     }
     var result = signal_pinned(a, pid, start, signal, fd);
     unsafe { pm_close(fd); };
-    try result;
+    result;
 
-    return Result.Ok;
+    return;
   }
 
   /** Samples visible processes and counts entries that disappear or cannot be read. */
-  function collect(a: ref HeapAllocator, elapsed: i64) Result<Frame> {
-    var f = try Frame(a);
+  function collect(a: ref HeapAllocator, elapsed: i64) Frame throws {
+    var f = Frame(a);
     f.timestamp = std.time.read_unix_time_millis();
     f.elapsed = elapsed;
-    f.total_memory = try physical_memory(a);
+    f.total_memory = physical_memory(a);
     var page = unsafe { pm_sysconf(30); };
     if (page <= 0) {
-      return Result.Error(Error(1, "system page size unavailable"));
+      throw Error(1, "system page size unavailable");
     }
-    var entries = try std.io.read_dir(a, "/proc");
+    var entries = std.io.read_dir(a, "/proc");
     for (var i: i64 = 0; i < entries.size(); i = i + 1) {
-      var name: ref String = (try entries.get(i)).name();
-      if (name.is_empty() or (try name.at(0)) < b'0' or (try name.at(0)) > b'9') {
+      var name: ref String = (entries.get(i)).name();
+      if (name.is_empty() or (name.at(0)) < b'0' or (name.at(0)) > b'9') {
         continue;
       }
-      match linux_process(a, name, page) {
-        Result.Ok(value) => {
-          try f.processes.push(value);
-        },
-        (e: const ref IError) => {
-          f.inaccessible = f.inaccessible + 1;
+
+      var operation_completed_1 = false;
+      try {
+        var value = linux_process(a, name, page);
+        operation_completed_1 = true;
+        f.processes.push(value);
+      } catch {
+        if (operation_completed_1) {
+          throw;
         }
-      };
+        f.inaccessible = f.inaccessible + 1;
+      }
     }
-    return Result.Ok(f);
+    return f;
   }
 }

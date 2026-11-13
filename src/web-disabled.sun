@@ -11,22 +11,22 @@ public module system_monitor {
   /** Reports unsupported web mode before sampling or terminal setup. */
   class Web {
     /** Validates the requested UI against this build's capabilities. */
-    init(a: ref HeapAllocator, options: ref Options) Result<void> {
+    init(a: ref HeapAllocator, options: ref Options) throws {
       if (not options.ui.equals_literal("terminal")) {
-        return Result.Error(Error(1, "web hosting requires the Linux x86_64 sun_serve library"));
+        throw Error(1, "web hosting requires the Linux x86_64 sun_serve library");
       }
 
-      return Result.Ok;
+      return;
     }
 
     /** Leaves terminal-only samples untouched. */
-    method publish(a: ref HeapAllocator, session: ref Session) Result<void> {
-      return Result.Ok;
+    method publish(a: ref HeapAllocator, session: ref Session) void throws {
+      return;
     }
 
     /** Leaves resource collection to the terminal on unsupported web targets. */
-    method publish_resources(a: ref HeapAllocator, now: i64) Result<void> {
-      return Result.Ok;
+    method publish_resources(a: ref HeapAllocator, now: i64) void throws {
+      return;
     }
 
     /** Matches the server shutdown interface. */

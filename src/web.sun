@@ -10,37 +10,35 @@ public module system_monitor {
   }
 
   /** Loads the installed HTML resource relative to the running executable. */
-  function load_dashboard(a: ref HeapAllocator) Result<String> {
-    var buffer = try ContiguousBuffer<u8>(a, 4096);
-    var executable = try String("/proc/self/exe");
-    var size = unsafe { pm_readlink(try executable.c_str(), buffer.raw_data(), 4096i64); };
+  function load_dashboard(a: ref HeapAllocator) String throws {
+    var buffer = ContiguousBuffer<u8>(a, 4096);
+    var executable = String("/proc/self/exe");
+    var size = unsafe { pm_readlink(executable.c_str(), buffer.raw_data(), 4096i64); };
     if (size <= 0 or size >= 4096) {
-      return Result.Error(Error(1, "cannot locate the dashboard executable"));
+      throw Error(1, "cannot locate the dashboard executable");
     }
-    var path = try String(a, buffer, size);
+    var path = String(a, buffer, size);
     match path.rfind_char(b'/') {
       Option.Some(index) => {
-        var directory = try path.substr(a, 0, index);
-        var resource = try directory.clone(a);
-        try resource.append("/../share/system_monitor/dashboard.html");
+        var directory = path.substr(a, 0, index);
+        var resource = directory.clone(a);
+        resource.append("/../share/system_monitor/dashboard.html");
 
-        match std.io.read_to_string(a, resource) {
-          SystemResult.Ok(value) => {
-            return Result.Ok(value);
-          },
-          (e: const ref IError) => {
-            resource = try directory.clone(a);
-            try resource.append("/share/system_monitor/dashboard.html");
+        try {
+          var value = std.io.read_to_string(a, resource);
+          return value;
+        } catch {
+          resource = directory.clone(a);
+          resource.append("/share/system_monitor/dashboard.html");
 
-            return Result.Ok(try std.io.read_to_string(a, resource));
-          }
-        };
+          return std.io.read_to_string(a, resource);
+        }
       },
       Option.None => {
-        return Result.Error(Error(1, "cannot locate the dashboard directory"));
+        throw Error(1, "cannot locate the dashboard directory");
       }
     };
-    return Result.Ok(try String(""));
+    return String("");
   }
 
   /** Holds serialized samples independently of the collector and its history. */
@@ -52,12 +50,12 @@ public module system_monitor {
     var resources: String;
 
     /** Initializes owned storage and reports allocation failure. */
-    init() std.AllocationResult<void> {
-      this.html = try String("");
-      this.snapshot = try String("null");
-      this.history = try String("[]");
-      this.status = try String("{}");
-      this.resources = try String("{}");
+    init() throws {
+      this.html = String("");
+      this.snapshot = String("null");
+      this.history = String("[]");
+      this.status = String("{}");
+      this.resources = String("{}");
     }
   }
 
@@ -71,120 +69,114 @@ public module system_monitor {
     }
 
     /** Routes read-only requests and contains parsing failures. */
-    public method handle_result(
-      req: const ref Request,
-      resp: ref Response
-    ) std.AllocationResult<void> {
-      try resp.add_header("Cache-Control", "no-store");
-      try resp.add_header("X-Content-Type-Options", "nosniff");
+    public method handle_result(req: const ref Request, resp: ref Response) void throws {
+      resp.add_header("Cache-Control", "no-store");
+      resp.add_header("X-Content-Type-Options", "nosniff");
       if (not req.method_is("GET") and not req.method_is("HEAD")) {
         resp.set_status(405);
-        try resp.add_header("Allow", "GET, HEAD");
-        return std.AllocationResult.Ok;
+        resp.add_header("Allow", "GET, HEAD");
+        return;
       }
       if (req.path_is("/")) {
-        try resp.set_content_type("text/html; charset=utf-8");
+        resp.set_content_type("text/html; charset=utf-8");
         var guard = this.state.lock();
-        try resp.set_body_string(guard.get().html);
-        return std.AllocationResult.Ok;
+        resp.set_body_string(guard.get().html);
+        return;
       }
-      try resp.set_content_type("application/json");
-      match this.api(req, resp) {
-        Result.Ok => {},
-        (e: const ref IError) => {
-          resp.set_status(400);
-          try resp.set_body("{\"error\":\"invalid history identity\"}");
-        }
-      };
+      resp.set_content_type("application/json");
+      try {
+        this.api(req, resp);
+      } catch {
+        resp.set_status(400);
+        resp.set_body("{\"error\":\"invalid history identity\"}");
+      }
 
-      return std.AllocationResult.Ok;
+      return;
     }
 
     /** Runs the callback and terminates if its response storage cannot be allocated. */
     public method handle(req: const ref Request, resp: ref Response) void {
-      match this.handle_result(req, resp) {
-        std.AllocationResult.Ok => {},
-        _ => {
-          _panic("allocation failed in server callback");
-        }
-      };
+      try {
+        this.handle_result(req, resp);
+      } catch {
+        _panic("allocation failed in server callback");
+      }
     }
 
     /** Copies a publication under a short lock, then filters outside it. */
-    method api(req: const ref Request, resp: ref Response) Result<void> {
+    method api(req: const ref Request, resp: ref Response) void throws {
       var a = make_heap_allocator();
       if (not req.path_is("/api/v1/view") and not req.path_is("/api/v1/snapshot") and
         not req.path_is("/api/v1/status") and not req.path_is("/api/v1/history") and
         not req.path_is("/api/v1/resources")) {
         resp.set_status(404);
-        try resp.set_body("{\"error\":\"not found\"}");
-        return Result.Ok;
+        resp.set_body("{\"error\":\"not found\"}");
+        return;
       }
-      var text = try (this.read(a, req));
+      var text = (this.read(a, req));
       if (req.path_is("/api/v1/history")) {
-        match try req.query_param("id", a) {
+        match req.query_param("id", a) {
           Option.Some(id) => {
-            var parts = try id.split(a, b':');
-            if (parts.size() != 2 or (try number(try parts.get(0))) < 0 or
-              (try number(try parts.get(1))) < 0) {
-              return Result.Error(Error(1, "invalid identity"));
+            var parts = id.split(a, b':');
+            if (parts.size() != 2 or (number(parts.get(0))) < 0 or (number(parts.get(1))) < 0) {
+              throw Error(1, "invalid identity");
             }
-            var frames = try std.json.parse_json(a, text);
-            var points = try std.json.create_json_array(a);
+            var frames = std.json.parse_json(a, text);
+            var points = std.json.create_json_array(a);
             for (var i: i64 = 0; i < frames.len(); i = i + 1) {
-              var frame: ref std.json.Json = try frames.at(i);
-              var point = try std.json.create_json_object(a);
-              try point.set(
-                try String("elapsed_ms"),
-                std.json.Json(try (try frame.get("elapsed_ms")).as_i64())
+              var frame: ref std.json.Json = frames.at(i);
+              var point = std.json.create_json_object(a);
+              point.set(
+                String("elapsed_ms"),
+                std.json.Json((frame.get("elapsed_ms")).as_i64())
               );
-              var rows: ref std.json.Json = try frame.get("processes");
-              try point.set(try String("process"), std.json.Json());
+              var rows: ref std.json.Json = frame.get("processes");
+              point.set(String("process"), std.json.Json());
               for (var j: i64 = 0; j < rows.len(); j = j + 1) {
-                if ((try (try (try rows.at(j)).get("id")).as_string()).equals(id)) {
-                  var row = try (try rows.at(j)).to_string(a);
-                  try point.set(
-                    try String("process"),
-                    try std.json.parse_json(a, row)
+                if ((((rows.at(j)).get("id")).as_string()).equals(id)) {
+                  var row = (rows.at(j)).to_string(a);
+                  point.set(
+                    String("process"),
+                    std.json.parse_json(a, row)
                   );
                 }
               }
-              try points.push(point);
+              points.push(point);
             }
-            text = try points.to_string(a);
+            text = points.to_string(a);
             resp.set_status(200);
           },
           Option.None => {}
         };
       }
-      try resp.set_body_string(text);
+      resp.set_body_string(text);
 
-      return Result.Ok;
+      return;
     }
 
     /** Reads one consistent publication without borrowing collector state. */
-    method read(a: const ref HeapAllocator, req: const ref Request) std.AllocationResult<String> {
+    method read(a: const ref HeapAllocator, req: const ref Request) String throws {
       var guard = this.state.lock();
       if (req.path_is("/api/v1/resources")) {
-        return std.AllocationResult.Ok(try guard.get().resources.clone(a));
+        return guard.get().resources.clone(a);
       }
       if (req.path_is("/api/v1/snapshot")) {
-        return std.AllocationResult.Ok(try guard.get().snapshot.clone(a));
+        return guard.get().snapshot.clone(a);
       }
       if (req.path_is("/api/v1/status")) {
-        return std.AllocationResult.Ok(try guard.get().status.clone(a));
+        return guard.get().status.clone(a);
       }
       if (req.path_is("/api/v1/history")) {
-        return std.AllocationResult.Ok(try guard.get().history.clone(a));
+        return guard.get().history.clone(a);
       }
-      var text = try String("{\"snapshot\":");
-      try text.append(guard.get().snapshot);
-      try text.append(",\"history\":");
-      try text.append(guard.get().history);
-      try text.append(",\"status\":");
-      try text.append(guard.get().status);
-      try text.append("}");
-      return std.AllocationResult.Ok(text);
+      var text = String("{\"snapshot\":");
+      text.append(guard.get().snapshot);
+      text.append(",\"history\":");
+      text.append(guard.get().history);
+      text.append(",\"status\":");
+      text.append(guard.get().status);
+      text.append("}");
+      return text;
     }
 
     /** Rejects websocket upgrades; the dashboard polls complete snapshots. */
@@ -207,28 +199,28 @@ public module system_monitor {
   }
 
   /** Serializes typed measurements and availability messages for browser tables and charts. */
-  function resource_json(a: ref HeapAllocator, resource: ref Resources) Result<std.json.Json> {
-    var view = try std.json.create_json_object(a);
-    var lines = try std.json.create_json_array(a);
+  function resource_json(a: ref HeapAllocator, resource: ref Resources) std.json.Json throws {
+    var view = std.json.create_json_object(a);
+    var lines = std.json.create_json_array(a);
     for (var i: i64 = 0; i < resource.lines.size(); i = i + 1) {
-      try lines.push(
-        std.json.Json(try (try resource.lines.get(i)).clone(a))
+      lines.push(
+        std.json.Json((resource.lines.get(i)).clone(a))
       );
     }
-    try view.set(try String("lines"), lines);
-    try view.set(
-      try String("rows"),
-      try std.json.parse_json(a, try resource.rows.to_string(a))
+    view.set(String("lines"), lines);
+    view.set(
+      String("rows"),
+      std.json.parse_json(a, resource.rows.to_string(a))
     );
-    try view.set(
-      try String("message"),
-      try std.json.create_json_string(a, resource.message)
+    view.set(
+      String("message"),
+      std.json.create_json_string(a, resource.message)
     );
-    try view.set(
-      try String("samples"),
+    view.set(
+      String("samples"),
       std.json.Json(resource.samples)
     );
-    return Result.Ok(view);
+    return view;
   }
 
   /** Owns optional server workers and stops them before shared state is released. */
@@ -244,147 +236,208 @@ public module system_monitor {
     var resource_interval: i64 = 1000;
 
     /** Starts localhost hosting only when web presentation was requested. */
-    init(a: ref HeapAllocator, options: ref Options) Result<void> {
+    init(a: ref HeapAllocator, options: ref Options) throws {
       if (options.interval > this.resource_interval) {
         this.resource_interval = options.interval;
       }
-      this.disk = try Resources(a);
-      this.service = try Resources(a);
-      this.network = try Resources(a);
-      this.temperature = try Resources(a);
-      this.state = try Shared<Publication>(a, try Publication());
+      this.disk = Resources(a);
+      this.service = Resources(a);
+      this.network = Resources(a);
+      this.temperature = Resources(a);
+      this.state = Shared<Publication>(a, Publication());
       this.enabled = not options.ui.equals_literal("terminal");
       if (not this.enabled) {
-        return Result.Ok;
+        return;
       }
-      var html = try load_dashboard(a);
+      var html = load_dashboard(a);
       if (this.enabled) {
         var guard = this.state.lock();
         guard.get().html = html;
       }
-      var cfg = try Config(a);
-      try cfg.add_listen(std.net.ipv4_loopback(), _convert<i32>(options.port));
+      var cfg = Config(a);
+      cfg.add_listen(std.net.ipv4_loopback(), _convert<i32>(options.port));
       cfg.access_log = false;
       cfg.timeouts.drain_ms = 1000;
-      var handlers = try Vec<DashboardHandler>(a, 1);
-      try handlers.push(DashboardHandler(this.state.clone()));
+      var handlers = Vec<DashboardHandler>(a, 1);
+      handlers.push(DashboardHandler(this.state.clone()));
 
-      var server = match Server<DashboardHandler>(a, cfg, handlers) {
-        ServerResult.Ok(value) => value,
-        (error: const ref IError) => {
-          return Result.Error(
-            try Error(error.code(), try error.message())
-          );
+      var server_outcome: std.Option<Server<DashboardHandler>> = std.Option.None;
+
+      try {
+        var value = Server<DashboardHandler>(a, cfg, handlers);
+
+        server_outcome = std.Option.Some(value);
+      } catch (error: std.Error) {
+        throw Error(error.code(), error.message());
+      } catch (error: std.AllocationError) {
+        throw Error(error.code(), error.message());
+      } catch (error: std.InvalidArgumentError) {
+        throw Error(error.code(), error.message());
+      } catch (error: std.OverflowError) {
+        throw Error(error.code(), error.message());
+      } catch (error: std.IndexOutOfBoundsError) {
+        throw Error(error.code(), error.message());
+      } catch (error: std.NotFoundError) {
+        throw Error(error.code(), error.message());
+      } catch (error: std.EmptyError) {
+        throw Error(error.code(), error.message());
+      } catch (error: std.IOError) {
+        throw Error(error.code(), error.message());
+      } catch (error: std.ConversionError) {
+        throw Error(error.code(), error.message());
+      } catch (error: std.DivisionByZeroError) {
+        throw Error(error.code(), error.message());
+      } catch (error: std.ArithmeticError) {
+        throw Error(error.code(), error.message());
+      } catch (error: std.json.JsonError) {
+        throw Error(error.code(), error.message());
+      } catch (error: std.xml.XmlError) {
+        throw Error(error.code(), error.message());
+      } catch (error: std.ProtoDecodeError) {
+        throw Error(error.code(), error.message());
+      } catch (error: sun_serve.TlsError) {
+        throw Error(error.code(), error.message());
+      }
+
+      var server = match server_outcome {
+        std.Option.Some(value) => value,
+        std.Option.None => {
+          throw std.Error(1, "Exception handler produced no value");
         }
       };
-      match server.start() {
-        ServerResult.Ok => {},
-        (error: const ref IError) => {
-          return Result.Error(
-            try Error(error.code(), try error.message())
-          );
-        }
-      };
+      try {
+        server.start();
+      } catch (error: std.Error) {
+        throw Error(error.code(), error.message());
+      } catch (error: std.AllocationError) {
+        throw Error(error.code(), error.message());
+      } catch (error: std.InvalidArgumentError) {
+        throw Error(error.code(), error.message());
+      } catch (error: std.OverflowError) {
+        throw Error(error.code(), error.message());
+      } catch (error: std.IndexOutOfBoundsError) {
+        throw Error(error.code(), error.message());
+      } catch (error: std.NotFoundError) {
+        throw Error(error.code(), error.message());
+      } catch (error: std.EmptyError) {
+        throw Error(error.code(), error.message());
+      } catch (error: std.IOError) {
+        throw Error(error.code(), error.message());
+      } catch (error: std.ConversionError) {
+        throw Error(error.code(), error.message());
+      } catch (error: std.DivisionByZeroError) {
+        throw Error(error.code(), error.message());
+      } catch (error: std.ArithmeticError) {
+        throw Error(error.code(), error.message());
+      } catch (error: std.json.JsonError) {
+        throw Error(error.code(), error.message());
+      } catch (error: std.xml.XmlError) {
+        throw Error(error.code(), error.message());
+      } catch (error: std.ProtoDecodeError) {
+        throw Error(error.code(), error.message());
+      } catch (error: sun_serve.TlsError) {
+        throw Error(error.code(), error.message());
+      }
       this.server = Option.Some(server);
-      var message = try String("Web dashboard: http://127.0.0.1:");
-      try message.append(options.port);
+      var message = String("Web dashboard: http://127.0.0.1:");
+      message.append(options.port);
       std.io.eprintln(message);
 
-      return Result.Ok;
+      return;
     }
 
     /** Serializes outside the publication lock using the same samples as the terminal. */
-    method publish(a: ref HeapAllocator, session: ref Session) Result<void> {
+    method publish(a: ref HeapAllocator, session: ref Session) void throws {
       if (not this.enabled) {
-        return Result.Ok;
+        return;
       }
-      var snapshot = try (try frame_json(a, session.previous)).to_string(a);
-      var frames = try std.json.create_json_array(a);
+      var snapshot = (frame_json(a, session.previous)).to_string(a);
+      var frames = std.json.create_json_array(a);
       for (var i: i64 = 0; i < session.history.frames.size(); i = i + 1) {
-        try frames.push(try frame_json(a, try session.history.frames.get(i)));
+        frames.push(frame_json(a, session.history.frames.get(i)));
       }
-      var history = try frames.to_string(a);
-      var status = try std.json.create_json_object(a);
-      try status.set(try String("version"), std.json.Json(1i64));
-      try status.set(
-        try String("replay"),
+      var history = frames.to_string(a);
+      var status = std.json.create_json_object(a);
+      status.set(String("version"), std.json.Json(1i64));
+      status.set(
+        String("replay"),
         std.json.Json(not session.options.replay.is_empty())
       );
-      try status.set(
-        try String("finished"),
+      status.set(
+        String("finished"),
         std.json.Json(session.finished)
       );
-      try status.set(
-        try String("history_ms"),
-        std.json.Json(try session.history.window())
+      status.set(
+        String("history_ms"),
+        std.json.Json(session.history.window())
       );
-      try status.set(
-        try String("evicted"),
+      status.set(
+        String("evicted"),
         std.json.Json(session.history.evicted)
       );
-      try status.set(
-        try String("graph_window_ms"),
+      status.set(
+        String("graph_window_ms"),
         std.json.Json(session.options.graph_window)
       );
-      try status.set(
-        try String("top"),
+      status.set(
+        String("top"),
         std.json.Json(session.options.top)
       );
-      try status.set(
-        try String("memory"),
+      status.set(
+        String("memory"),
         std.json.Json(session.options.memory)
       );
-      var text = try status.to_string(a);
+      var text = status.to_string(a);
       var guard = this.state.lock();
       guard.get().snapshot = snapshot;
       guard.get().history = history;
       guard.get().status = text;
 
-      return Result.Ok;
+      return;
     }
 
     /** Collects live host views independently of terminal navigation and process replay. */
-    method publish_resources(a: ref HeapAllocator, now: i64) Result<void> {
+    method publish_resources(a: ref HeapAllocator, now: i64) void throws {
       if (not this.enabled or now < this.resources_due) {
-        return Result.Ok;
+        return;
       }
-      (try this.disk.sample(a, try String("disk"), now));
-      (try this.service.sample(a, try String("service"), now));
-      (try this.network.sample(a, try String("network"), now));
-      (try this.temperature.sample(a, try String("temperature"), now));
-      var views = try std.json.create_json_object(a);
-      try views.set(
-        try String("disk"),
-        try resource_json(a, this.disk)
+      (this.disk.sample(a, String("disk"), now));
+      (this.service.sample(a, String("service"), now));
+      (this.network.sample(a, String("network"), now));
+      (this.temperature.sample(a, String("temperature"), now));
+      var views = std.json.create_json_object(a);
+      views.set(
+        String("disk"),
+        resource_json(a, this.disk)
       );
-      try views.set(
-        try String("service"),
-        try resource_json(a, this.service)
+      views.set(
+        String("service"),
+        resource_json(a, this.service)
       );
-      try views.set(
-        try String("network"),
-        try resource_json(a, this.network)
+      views.set(
+        String("network"),
+        resource_json(a, this.network)
       );
-      try views.set(
-        try String("temperature"),
-        try resource_json(a, this.temperature)
+      views.set(
+        String("temperature"),
+        resource_json(a, this.temperature)
       );
-      var publication = try std.json.create_json_object(a);
-      try publication.set(try String("monitors"), views);
-      try publication.set(
-        try String("interval_ms"),
+      var publication = std.json.create_json_object(a);
+      publication.set(String("monitors"), views);
+      publication.set(
+        String("interval_ms"),
         std.json.Json(this.resource_interval)
       );
-      try publication.set(
-        try String("timestamp_ms"),
+      publication.set(
+        String("timestamp_ms"),
         std.json.Json(std.time.read_unix_time_millis())
       );
-      var text = try publication.to_string(a);
+      var text = publication.to_string(a);
       var guard = this.state.lock();
       guard.get().resources = text;
       this.resources_due = now + this.resource_interval;
 
-      return Result.Ok;
+      return;
     }
 
     /** Stops and joins workers before the session is closed. */

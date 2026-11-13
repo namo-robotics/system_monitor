@@ -106,7 +106,7 @@ least 65 columns and 18 rows. Unsupported collectors show availability details.
 ## Build and run
 
 Use a current Sun compiler and its matching standard library. The source uses
-returned result enums and prefix `try` for error propagation. On Linux x86_64:
+`throws` declarations and block-form `try`/`catch` for error handling. On Linux x86_64:
 
 ```sh
 scripts/ci-toolchain.sh

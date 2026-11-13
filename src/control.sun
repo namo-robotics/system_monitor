@@ -7,31 +7,23 @@ public module system_monitor {
   extern "C" function pm_getpid() i32 as "getpid";
 
   /** Rejects group targets and rechecks identity before sending a supported signal. */
-  function control_process(
-    a: ref HeapAllocator,
-    pid: i64,
-    start: i64,
-    signal: i32
-  ) std.AllocationResult<String> {
+  function control_process(a: ref HeapAllocator, pid: i64, start: i64, signal: i32) String throws {
     if (pid <= 1 or pid > 2147483647 or pid == _convert<i64>(unsafe { pm_getpid(); })) {
-      return std.AllocationResult.Ok(try String("Cannot signal this PID"));
+      return String("Cannot signal this PID");
     }
     if (signal != 15 and signal != 9) {
-      return std.AllocationResult.Ok(try String("Unsupported process signal"));
+      return String("Unsupported process signal");
     }
-    match signal_process(a, _convert<i32>(pid), start, signal) {
-      Result.Ok => {},
-      (e: const ref IError) => {
-        return std.AllocationResult.Ok(
-          try String("Signal failed: process exited, changed, or permission denied")
-        );
-      }
-    };
-    var result = try String("Sent SIGTERM to PID ");
+    try {
+      signal_process(a, _convert<i32>(pid), start, signal);
+    } catch {
+      return String("Signal failed: process exited, changed, or permission denied");
+    }
+    var result = String("Sent SIGTERM to PID ");
     if (signal == 9) {
-      result = try String("Sent SIGKILL to PID ");
+      result = String("Sent SIGKILL to PID ");
     }
-    try result.append(pid);
-    return std.AllocationResult.Ok(result);
+    result.append(pid);
+    return result;
   }
 }

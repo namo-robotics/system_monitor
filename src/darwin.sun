@@ -117,23 +117,23 @@ public module system_monitor {
   extern "C" function pm_timebase(info: raw_ptr<u8>) i32 as "mach_timebase_info";
 
   /** Returns the frequency of libproc's native Mach CPU counters. */
-  function clock_ticks() Result<i64> {
+  function clock_ticks() i64 throws {
     var info = MachTimebase();
     if (unsafe { pm_timebase(_bitcast<raw_ptr<u8>>(_address_of<MachTimebase>(info))); } != 0 or
       info.numerator == 0) {
-      return Result.Ok(0);
+      return 0;
     }
-    return Result.Ok(1000000000 * _convert<i64>(info.denominator) / _convert<i64>(info.numerator));
+    return 1000000000 * _convert<i64>(info.denominator) / _convert<i64>(info.numerator);
   }
 
   /** Queries physical memory without requiring a task port. */
-  function physical_memory() Result<i64> {
-    var name = try String("hw.memsize");
+  function physical_memory() i64 throws {
+    var name = String("hw.memsize");
     var bytes: u64 = 0;
     var size: u64 = 8;
     var rc = unsafe {
       pm_sysctlbyname(
-        try name.c_str(),
+        name.c_str(),
         _bitcast<raw_ptr<u8>>(_address_of<u64>(bytes)),
         _address_of<u64>(size),
         null,
@@ -141,46 +141,46 @@ public module system_monitor {
       );
     };
     if (rc != 0) {
-      return Result.Error(Error(1, "cannot query physical memory"));
+      throw Error(1, "cannot query physical memory");
     }
-    return Result.Ok(_convert<i64>(bytes));
+    return _convert<i64>(bytes);
   }
 
   /** Reads a stable start identifier using a named ABI layout. */
-  function darwin_identity(pid: i32) Result<i64> {
+  function darwin_identity(pid: i32) i64 throws {
     var info = BsdInfo();
     var size = _convert<i32>(_sizeof<BsdInfo>());
     var n = unsafe {
       pm_pidinfo(pid, 3, 0, _bitcast<raw_ptr<u8>>(_address_of<BsdInfo>(info)), size);
     };
     if (n != size) {
-      return Result.Error(Error(1, "process identity unavailable"));
+      throw Error(1, "process identity unavailable");
     }
-    return Result.Ok(_convert<i64>(info.start_seconds * 1000000 + info.start_microseconds));
+    return _convert<i64>(info.start_seconds * 1000000 + info.start_microseconds);
   }
 
   /** Sends a POSIX signal to a single process. */
   extern "C" function pm_kill(pid: i32, signal: i32) i32 as "kill";
 
   /** Rechecks the observed identity immediately before signalling a macOS process. */
-  function signal_process(a: ref HeapAllocator, pid: i32, start: i64, signal: i32) Result<void> {
-    if (try darwin_identity(pid) != start) {
-      return Result.Error(Error(1, "process identity changed"));
+  function signal_process(a: ref HeapAllocator, pid: i32, start: i64, signal: i32) void throws {
+    if (darwin_identity(pid) != start) {
+      throw Error(1, "process identity changed");
     }
     if (unsafe { pm_kill(pid, signal); } != 0) {
-      return Result.Error(Error(1, "signal rejected"));
+      throw Error(1, "signal rejected");
     }
 
-    return Result.Ok;
+    return;
   }
 
   /** Copies only argv from KERN_PROCARGS2, excluding environment variables. */
-  function darwin_arguments(a: const ref HeapAllocator, pid: i32) Result<String> {
-    var mib = try ContiguousBuffer<i32>(a, 3);
-    try mib.set(0, 1);
-    try mib.set(1, 49);
-    try mib.set(2, pid);
-    var data = try ContiguousBuffer<u8>(a, 1048576);
+  function darwin_arguments(a: const ref HeapAllocator, pid: i32) String throws {
+    var mib = ContiguousBuffer<i32>(a, 3);
+    mib.set(0, 1);
+    mib.set(1, 49);
+    mib.set(2, pid);
+    var data = ContiguousBuffer<u8>(a, 1048576);
     var size: u64 = 1048576;
     var rc = unsafe {
       pm_sysctl(
@@ -192,85 +192,89 @@ public module system_monitor {
         0
       );
     };
-    var out = try String("");
+    var out = String("");
     if (rc != 0 or size < 5) {
-      return Result.Ok(out);
+      return out;
     }
     var argc = unsafe { _load<i32>(data.raw_data(), 0); };
     var end = _convert<i64>(size);
     var pos: i64 = 4;
-    while (pos < end and (try buffer_value(data, pos)) != 0u8) {
+    while (pos < end and (buffer_value(data, pos)) != 0u8) {
       pos = pos + 1;
     }
-    while (pos < end and (try buffer_value(data, pos)) == 0u8) {
+    while (pos < end and (buffer_value(data, pos)) == 0u8) {
       pos = pos + 1;
     }
     for (var i: i32 = 0; i < argc and pos < end; i = i + 1) {
-      while (pos < end and (try buffer_value(data, pos)) != 0u8) {
-        try out.append_char(try buffer_value(data, pos));
+      while (pos < end and (buffer_value(data, pos)) != 0u8) {
+        out.append_char(buffer_value(data, pos));
         pos = pos + 1;
       }
-      try out.append_char(0u8);
+      out.append_char(0u8);
       pos = pos + 1;
     }
-    return Result.Ok(out);
+    return out;
   }
 
   /** Reads one process while preserving unavailable CPU and memory values. */
-  function darwin_process(a: const ref HeapAllocator, pid: i32) Result<Process> {
-    var p = try Process();
+  function darwin_process(a: const ref HeapAllocator, pid: i32) Process throws {
+    var p = Process();
     p.pid = _convert<i64>(pid);
-    p.start = try darwin_identity(pid);
-    var task = try ContiguousBuffer<u64>(a, 12);
+    p.start = darwin_identity(pid);
+    var task = ContiguousBuffer<u64>(a, 12);
     task.fill(0);
     var n = unsafe { pm_pidinfo(pid, 4, 0, task.raw_data(), 96); };
     if (n == 96) {
-      p.rss = _convert<i64>(try buffer_value(task, 1));
-      p.ticks = _convert<i64>(try buffer_value(task, 2) + try buffer_value(task, 3));
+      p.rss = _convert<i64>(buffer_value(task, 1));
+      p.ticks = _convert<i64>(buffer_value(task, 2) + buffer_value(task, 3));
     }
-    var path = try ContiguousBuffer<u8>(a, 4096);
+    var path = ContiguousBuffer<u8>(a, 4096);
     path.fill(0);
     if (unsafe { pm_pidpath(pid, path.raw_data(), 4096); } > 0) {
-      p.exe = try from_c_str(a, path.raw_data());
+      p.exe = from_c_str(a, path.raw_data());
     }
-    p.args = try darwin_arguments(a, pid);
-    if (try darwin_identity(pid) != p.start) {
-      return Result.Error(Error(1, "process changed during collection"));
+    p.args = darwin_arguments(a, pid);
+    if (darwin_identity(pid) != p.start) {
+      throw Error(1, "process changed during collection");
     }
-    try label_process(a, p);
-    return Result.Ok(p);
+    label_process(a, p);
+    return p;
   }
 
   /** Samples every visible process, tolerating exits and permission failures. */
-  function collect(a: ref HeapAllocator, elapsed: i64) Result<Frame> {
-    var f = try Frame(a);
+  function collect(a: ref HeapAllocator, elapsed: i64) Frame throws {
+    var f = Frame(a);
     f.elapsed = elapsed;
     f.timestamp = (std.time.read_unix_time_millis());
-    f.total_memory = try physical_memory();
+    f.total_memory = physical_memory();
     var needed = unsafe { pm_listpids(1, 0, null, 0); };
     if (needed <= 0) {
-      return Result.Error(Error(1, "cannot enumerate processes"));
+      throw Error(1, "cannot enumerate processes");
     }
     var capacity = _convert<i64>(needed) / 4 + 1024;
-    var pids = try ContiguousBuffer<i32>(a, capacity);
+    var pids = ContiguousBuffer<i32>(a, capacity);
     var n = unsafe { pm_listpids(1, 0, pids.raw_data(), _convert<i32>(capacity * 4)); };
     if (n <= 0) {
-      return Result.Error(Error(1, "cannot read process list"));
+      throw Error(1, "cannot read process list");
     }
     for (var i: i64 = 0; i < _convert<i64>(n) / 4; i = i + 1) {
-      var pid: i32 = try pids.get(i);
+      var pid: i32 = pids.get(i);
       if (pid <= 0) {
         continue;
       }
-      match darwin_process(a, pid) {
-        Result.Ok(value) => {
-          try f.processes.push(value);
-        },
-        (e: const ref IError) => {
-          f.inaccessible = f.inaccessible + 1;
+
+      var operation_completed_1 = false;
+      try {
+        var value = darwin_process(a, pid);
+        operation_completed_1 = true;
+        f.processes.push(value);
+      } catch {
+        if (operation_completed_1) {
+          throw;
         }
-      };
+        f.inaccessible = f.inaccessible + 1;
+      }
     }
-    return Result.Ok(f);
+    return f;
   }
 }

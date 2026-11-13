@@ -10,36 +10,35 @@ public module system_monitor {
     var identities: Map<i64, i64>;
 
     /** Initializes owned state and resources for this object. */
-    init(a: const ref HeapAllocator) std.AllocationResult<void> {
-      this.identities = try Map<i64, i64>(a, 16);
+    init(a: const ref HeapAllocator) throws {
+      this.identities = Map<i64, i64>(a, 16);
     }
 
     /** Applies configured labels without carrying them across PID reuse. */
-    method apply(a: ref HeapAllocator, f: ref Frame) Result<void> {
+    method apply(a: ref HeapAllocator, f: ref Frame) void throws {
       if (not this.document.is_object()) {
-        return Result.Ok;
+        return;
       }
       for (var i: i64 = 0; i < f.processes.size(); i = i + 1) {
-        var p: ref Process = try f.processes.get(i);
-        var key = try String("");
-        try key.append(p.pid);
+        var p: ref Process = f.processes.get(i);
+        var key = String("");
+        key.append(p.pid);
         for (var k: i64 = 0; k < this.document.len(); k = k + 1) {
-          var matches = match this.document.key_at(k) {
-            std.json.JsonResult.Ok(name) => name.equals(key),
-            std.json.JsonResult.Error(error) => {
-              return Result.Json(error);
-            }
-          };
+          var matches: bool = false;
+
+          var name_1 = this.document.key_at(k);
+          matches = name_1.equals(key);
+
           if (matches) {
             if (not this.bound and not this.identities.contains(p.pid)) {
-              try this.identities.insert(p.pid, p.start);
+              this.identities.insert(p.pid, p.start);
             }
             var same_identity = false;
             if (this.identities.contains(p.pid)) {
-              same_identity = try this.identities.get(p.pid) == p.start;
+              same_identity = this.identities.get(p.pid) == p.start;
             }
             if (same_identity) {
-              p.label = try (try (try this.document.value_at(k)).as_string()).clone(a);
+              p.label = ((this.document.value_at(k)).as_string()).clone(a);
             }
             break;
           }
@@ -47,23 +46,23 @@ public module system_monitor {
       }
       this.bound = true;
 
-      return Result.Ok;
+      return;
     }
   }
 
   /** Derives a process label from its executable and ROS remapping arguments. */
-  function label_process(alloc: const ref HeapAllocator, p: ref Process) Result<void> {
-    var parts = try p.exe.split(alloc, "/");
-    p.label = try (try parts.get(parts.size() - 1)).clone(alloc);
+  function label_process(alloc: const ref HeapAllocator, p: ref Process) void throws {
+    var parts = p.exe.split(alloc, "/");
+    p.label = (parts.get(parts.size() - 1)).clone(alloc);
     if (p.label.is_empty()) {
-      p.label = try String("process");
+      p.label = String("process");
     }
-    var args = try p.args.split_nonempty(alloc, 0u8);
-    var node = try String("");
-    var ns = try String("");
+    var args = p.args.split_nonempty(alloc, 0u8);
+    var node = String("");
+    var ns = String("");
     var ros = false;
     for (var i: i64 = 0; i < args.size(); i = i + 1) {
-      var arg: ref String = try args.get(i);
+      var arg: ref String = args.get(i);
       if (arg.equals_literal("--ros-args")) {
         ros = true;
         continue;
@@ -75,30 +74,30 @@ public module system_monitor {
         continue;
       }
       if (arg.starts_with("__node:=")) {
-        node = try arg.substr(alloc, 8, arg.length() - 8);
+        node = arg.substr(alloc, 8, arg.length() - 8);
       }
       if (arg.starts_with("__name:=")) {
-        node = try arg.substr(alloc, 8, arg.length() - 8);
+        node = arg.substr(alloc, 8, arg.length() - 8);
       }
       if (arg.starts_with("__ns:=")) {
-        ns = try arg.substr(alloc, 6, arg.length() - 6);
+        ns = arg.substr(alloc, 6, arg.length() - 6);
       }
     }
     if (not node.is_empty()) {
-      p.label = try String("");
+      p.label = String("");
       if (not ns.starts_with("/")) {
-        try p.label.append("/");
+        p.label.append("/");
       }
-      try p.label.append(ns);
+      p.label.append(ns);
       if (not p.label.ends_with("/")) {
-        try p.label.append("/");
+        p.label.append("/");
       }
-      try p.label.append(node);
+      p.label.append(node);
     }
     if (p.exe.contains("component_container")) {
-      try p.label.append(" [shared container]");
+      p.label.append(" [shared container]");
     }
 
-    return Result.Ok;
+    return;
   }
 }

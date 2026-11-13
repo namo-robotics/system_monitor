@@ -14,54 +14,50 @@ public module system_monitor {
     var latest: i64 = 0;
 
     /** Initializes owned state and resources for this object. */
-    init(alloc: const ref HeapAllocator) std.AllocationResult<void> {
-      this.frames = try Vec<Frame>(alloc, 16);
+    init(alloc: const ref HeapAllocator) throws {
+      this.frames = Vec<Frame>(alloc, 16);
     }
 
     /** Retains a sample and evicts the oldest frames when limits are exceeded. */
-    method add(frame: Frame) Result<void> {
+    method add(frame: Frame) void throws {
       var latest = frame.elapsed;
       if (this.origin < 0) {
         this.origin = latest;
       }
       this.latest = latest;
-      var cost = try frame.cost();
+      var cost = frame.cost();
       while ((this.frames.size()) > 0) {
         var removed_cost: i64 = 0;
-        match this.frames.get(0) {
-          AccessResult.Ok(oldest) => {
-            if (latest - oldest.elapsed <= this.duration and this.bytes + cost <= this.limit) {
-              break;
-            }
-            removed_cost = try oldest.cost();
-          },
-          AccessResult.OutOfBounds(error) => {
-            return Result.OutOfBounds(error);
-          }
-        };
+
+        var oldest_1 = this.frames.get(0);
+        if (latest - oldest_1.elapsed <= this.duration and this.bytes + cost <= this.limit) {
+          break;
+        }
+        removed_cost = oldest_1.cost();
+
         this.bytes = this.bytes - removed_cost;
-        var removed = try this.frames.remove(0);
+        var removed = this.frames.remove(0);
         this.evicted = true;
       }
       // An oversized frame remains available to the current view, but is not retained.
       if (cost > this.limit) {
         this.evicted = true;
-        return Result.Ok;
+        return;
       }
       this.bytes = this.bytes + cost;
-      try this.frames.push(frame);
+      this.frames.push(frame);
 
-      return Result.Ok;
+      return;
     }
 
     /** Returns the elapsed time covered by retained samples. */
-    method window() Result<i64> {
+    method window() i64 throws {
       if ((this.frames.size()) < 2) {
-        return Result.Ok(0);
+        return 0;
       }
-      var first = try vector_read(this.frames, 0);
-      var last = try vector_read(this.frames, this.frames.size() - 1);
-      return Result.Ok(last.elapsed - first.elapsed);
+      var first = vector_read(this.frames, 0);
+      var last = vector_read(this.frames, this.frames.size() - 1);
+      return last.elapsed - first.elapsed;
     }
   }
 }

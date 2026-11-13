@@ -11,23 +11,23 @@ public module system_monitor {
   }
 
   /** Maps the selection screen shortcuts to monitor names. */
-  function monitor_choice(ch: u8) std.AllocationResult<String> {
+  function monitor_choice(ch: u8) String throws {
     if (ch == b'1') {
-      return std.AllocationResult.Ok(try String("process"));
+      return String("process");
     }
     if (ch == b'2') {
-      return std.AllocationResult.Ok(try String("disk"));
+      return String("disk");
     }
     if (ch == b'3') {
-      return std.AllocationResult.Ok(try String("service"));
+      return String("service");
     }
     if (ch == b'4') {
-      return std.AllocationResult.Ok(try String("network"));
+      return String("network");
     }
     if (ch == b'5') {
-      return std.AllocationResult.Ok(try String("temperature"));
+      return String("temperature");
     }
-    return std.AllocationResult.Ok(try String("menu"));
+    return String("menu");
   }
 
   /** Draws bounded lines without allowing host data to emit terminal commands. */
@@ -37,13 +37,13 @@ public module system_monitor {
     lines: ref Vec<String>,
     first: i64,
     name: const ref String
-  ) Result<void> {
-    try terminal.size(a);
-    var out = try String("");
+  ) void throws {
+    terminal.size(a);
+    var out = String("");
     var count = lines.size();
     if (terminal.active) {
-      try out.append("\x1b[H\x1b[2J");
-      try terminal.tabs(a, out, name);
+      out.append("\x1b[H\x1b[2J");
+      terminal.tabs(a, out, name);
       count = terminal.rows - 2;
       if (count < 1) {
         count = 1;
@@ -57,12 +57,12 @@ public module system_monitor {
       if (width < 1) {
         width = 1;
       }
-      try out.append(try safe_text(a, try lines.get(i), width));
-      try out.append("\r\n");
+      out.append(safe_text(a, lines.get(i), width));
+      out.append("\r\n");
     }
     (output(out));
 
-    return Result.Ok;
+    return;
   }
 
   /** Finds a monitor's position in the shared terminal and browser tab order. */
@@ -91,13 +91,13 @@ public module system_monitor {
     var drops: i64 = 0;
 
     /** Initializes owned storage and reports allocation failure. */
-    init() std.AllocationResult<void> {
-      this.name = try String("");
+    init() throws {
+      this.name = String("");
     }
   }
 
   /** Parses a Linux interface row, preserving names and rejecting short records. */
-  function parse_traffic(a: ref HeapAllocator, line: const ref String) Result<Traffic> {
+  function parse_traffic(a: ref HeapAllocator, line: const ref String) Traffic throws {
     var colon: i64 = -1;
     match line.rfind_char(b':') {
       Option.Some(n) => {
@@ -106,22 +106,22 @@ public module system_monitor {
       Option.None => {}
     };
     if (colon < 1) {
-      return Result.Error(Error(1, "missing interface separator"));
+      throw Error(1, "missing interface separator");
     }
-    var traffic = try Traffic();
-    traffic.name = try line.substr(a, 0, colon);
+    var traffic = Traffic();
+    traffic.name = line.substr(a, 0, colon);
     traffic.name.trim();
-    var rest = try line.substr(a, colon + 1, line.length() - colon - 1);
+    var rest = line.substr(a, colon + 1, line.length() - colon - 1);
 
-    var parts = try rest.split_whitespace(a);
+    var parts = rest.split_whitespace(a);
     if (parts.size() < 16) {
-      return Result.Error(Error(1, "short interface counters"));
+      throw Error(1, "short interface counters");
     }
-    traffic.received = try number(try parts.get(0));
-    traffic.sent = try number(try parts.get(8));
-    traffic.errors = try number(try parts.get(2)) + try number(try parts.get(10));
-    traffic.drops = try number(try parts.get(3)) + try number(try parts.get(11));
-    return Result.Ok(traffic);
+    traffic.received = number(parts.get(0));
+    traffic.sent = number(parts.get(8));
+    traffic.errors = number(parts.get(2)) + number(parts.get(10));
+    traffic.drops = number(parts.get(3)) + number(parts.get(11));
+    return traffic;
   }
 
   /** Computes bytes per second only when a valid previous counter exists. */
@@ -133,17 +133,21 @@ public module system_monitor {
   }
 
   /** Reads an optional sensor attribute without failing the entire view. */
-  function attribute(a: ref HeapAllocator, path: const ref String) std.AllocationResult<String> {
-    var file = try path.clone(a);
-    match std.io.read_to_string(a, file) {
-      SystemResult.Ok(value) => {
-        value.trim();
-        return std.AllocationResult.Ok(value);
-      },
-      (e: const ref IError) => {
-        return std.AllocationResult.Ok(try String(""));
+  function attribute(a: ref HeapAllocator, path: const ref String) String throws {
+    var file = path.clone(a);
+
+    var operation_completed_7 = false;
+    try {
+      var value = std.io.read_to_string(a, file);
+      operation_completed_7 = true;
+      value.trim();
+      return value;
+    } catch {
+      if (operation_completed_7) {
+        throw;
       }
-    };
+      return String("");
+    }
   }
 
   /** Joins a sysfs directory and an attribute name. */
@@ -151,34 +155,32 @@ public module system_monitor {
     a: const ref HeapAllocator,
     base: const ref String,
     name: const ref String
-  ) std.AllocationResult<String> {
-    var path = try base.clone(a);
-    try path.append("/");
-    try path.append(name);
-    return std.AllocationResult.Ok(path);
+  ) String throws {
+    var path = base.clone(a);
+    path.append("/");
+    path.append(name);
+    return path;
   }
 
   /** Formats a valid millidegree reading as Celsius. */
-  function format_temperature(value: ref String) Result<String> {
-    var degrees = _convert<f64>(try number(value)) / 1000.0;
+  function format_temperature(value: ref String) String throws {
+    var degrees = _convert<f64>(number(value)) / 1000.0;
     if (degrees < 0.0) {
-      var text = try String("-");
-      try text.append(try decimal(-degrees));
-      return Result.Ok(text);
+      var text = String("-");
+      text.append(decimal(-degrees));
+      return text;
     }
-    return Result.Ok(try decimal(degrees));
+    return decimal(degrees);
   }
 
   /** Converts a readable Linux millidegree attribute to Celsius. */
-  function temperature_text(value: ref String) std.AllocationResult<String> {
-    match format_temperature(value) {
-      Result.Ok(value) => {
-        return std.AllocationResult.Ok(value);
-      },
-      (e: const ref IError) => {
-        return std.AllocationResult.Ok(try String("N/A"));
-      }
-    };
+  function temperature_text(value: ref String) String throws {
+    try {
+      var value = format_temperature(value);
+      return value;
+    } catch {
+      return String("N/A");
+    }
   }
 
   /** Joins utility fields while preserving names that contain spaces. */
@@ -187,102 +189,102 @@ public module system_monitor {
     fields: ref Vec<String>,
     first: i64,
     last: i64
-  ) Result<String> {
-    var text = try String("");
+  ) String throws {
+    var text = String("");
     for (var i = first; i < last; i = i + 1) {
       if (i > first) {
-        try text.append(" ");
+        text.append(" ");
       }
-      try text.append(try vector_read(fields, i));
+      text.append(vector_read(fields, i));
     }
-    return Result.Ok(text);
+    return text;
   }
 
   /** Parses POSIX df columns into byte counts and a separate mount name. */
-  function disk_row(a: ref HeapAllocator, line: const ref String) Result<std.json.Json> {
-    var fields = try line.split_whitespace(a);
+  function disk_row(a: ref HeapAllocator, line: const ref String) std.json.Json throws {
+    var fields = line.split_whitespace(a);
     for (var i: i64 = 1; i + 4 < fields.size(); i = i + 1) {
-      var capacity: const ref String = try vector_read(fields, i + 3);
+      var capacity: const ref String = vector_read(fields, i + 3);
       if (not capacity.ends_with("%") and not capacity.equals_literal("-")) {
         continue;
       }
-      var total = try number(try vector_read(fields, i));
-      var used = try number(try vector_read(fields, i + 1));
-      var available = try number(try vector_read(fields, i + 2));
+      var total = number(vector_read(fields, i));
+      var used = number(vector_read(fields, i + 1));
+      var available = number(vector_read(fields, i + 2));
       var percent: i64 = -1;
       if (capacity.ends_with("%")) {
-        var percent_text = try capacity.substr(a, 0, capacity.length() - 1);
+        var percent_text = capacity.substr(a, 0, capacity.length() - 1);
 
-        percent = try number(percent_text);
+        percent = number(percent_text);
         if (percent < 0) {
-          return Result.Error(Error(1, "invalid filesystem percentage"));
+          throw Error(1, "invalid filesystem percentage");
         }
       }
       if (total < 0 or used < 0) {
-        return Result.Error(Error(1, "invalid filesystem counters"));
+        throw Error(1, "invalid filesystem counters");
       }
-      var row = try std.json.create_json_object(a);
-      try row.set(
-        try String("filesystem"),
-        std.json.Json(try joined_fields(a, fields, 0, i))
+      var row = std.json.create_json_object(a);
+      row.set(
+        String("filesystem"),
+        std.json.Json(joined_fields(a, fields, 0, i))
       );
-      try row.set(
-        try String("mount"),
-        std.json.Json(try joined_fields(a, fields, i + 4, fields.size()))
+      row.set(
+        String("mount"),
+        std.json.Json(joined_fields(a, fields, i + 4, fields.size()))
       );
-      try row.set(
-        try String("total_bytes"),
+      row.set(
+        String("total_bytes"),
         std.json.Json(total * 1024)
       );
-      try row.set(
-        try String("used_bytes"),
+      row.set(
+        String("used_bytes"),
         std.json.Json(used * 1024)
       );
-      try row.set(
-        try String("available_bytes"),
+      row.set(
+        String("available_bytes"),
         std.json.Json(available * 1024)
       );
       if (percent < 0) {
-        try row.set(try String("used_percent"), std.json.Json());
+        row.set(String("used_percent"), std.json.Json());
       } else {
-        try row.set(
-          try String("used_percent"),
+        row.set(
+          String("used_percent"),
           std.json.Json(percent)
         );
       }
-      return Result.Ok(row);
+      return row;
     }
-    return Result.Error(Error(1, "malformed filesystem row"));
+    throw Error(1, "malformed filesystem row");
   }
 
   /** Preserves the systemd unit identity, state columns and description. */
-  function service_row(a: ref HeapAllocator, line: const ref String) Result<std.json.Json> {
-    var fields = try line.split_whitespace(a);
-    if (fields.size() < 4 or not (try vector_read(fields, 0)).ends_with(".service")) {
-      return Result.Error(Error(1, "malformed service row"));
+  function service_row(a: ref HeapAllocator, line: const ref String) std.json.Json throws {
+    var fields = line.split_whitespace(a);
+    if (fields.size() < 4 or not (vector_read(fields, 0)).ends_with(".service")) {
+      throw Error(1, "malformed service row");
     }
-    var row = try std.json.create_json_object(a);
-    try row.set(
-      try String("unit"),
-      try std.json.create_json_string(a, try vector_read(fields, 0))
+    var row = std.json.create_json_object(a);
+    row.set(
+      String("unit"),
+      std.json.create_json_string(a, vector_read(fields, 0))
     );
-    try row.set(
-      try String("load"),
-      try std.json.create_json_string(a, try vector_read(fields, 1))
+    row.set(
+      String("load"),
+      std.json.create_json_string(a, vector_read(fields, 1))
     );
-    try row.set(
-      try String("active"),
-      try std.json.create_json_string(a, try vector_read(fields, 2))
+    row.set(
+      String("active"),
+      std.json.create_json_string(a, vector_read(fields, 2))
     );
-    try row.set(
-      try String("sub"),
-      try std.json.create_json_string(a, try vector_read(fields, 3))
+    row.set(
+      String("sub"),
+      std.json.create_json_string(a, vector_read(fields, 3))
     );
-    try row.set(
-      try String("description"),
-      std.json.Json(try joined_fields(a, fields, 4, fields.size()))
+    row.set(
+      String("description"),
+      std.json.Json(joined_fields(a, fields, 4, fields.size()))
     );
-    return Result.Ok(row);
+    return row;
   }
 
   /** Encodes missing rate baselines as null instead of a fabricated zero. */
@@ -294,15 +296,18 @@ public module system_monitor {
   }
 
   /** Converts signed millidegrees to Celsius, keeping unreadable values null. */
-  function degrees_json(value: const ref String) std.json.Json {
-    match number(value) {
-      Result.Ok(value) => {
-        return std.json.Json(_convert<f64>(value) / 1000.0);
-      },
-      (e: const ref IError) => {
-        return std.json.Json();
+  function degrees_json(value: const ref String) std.json.Json throws {
+    var operation_completed_6 = false;
+    try {
+      var value = number(value);
+      operation_completed_6 = true;
+      return std.json.Json(_convert<f64>(value) / 1000.0);
+    } catch {
+      if (operation_completed_6) {
+        throw;
       }
-    };
+      return std.json.Json();
+    }
   }
 
   /** Describes a sensor without treating a missing threshold as a healthy reading. */
@@ -311,37 +316,48 @@ public module system_monitor {
     name: const ref String,
     value: const ref String,
     critical: const ref String
-  ) Result<std.json.Json> {
-    var row = try std.json.create_json_object(a);
-    try row.set(
-      try String("sensor"),
-      try std.json.create_json_string(a, name)
+  ) std.json.Json throws {
+    var row = std.json.create_json_object(a);
+    row.set(
+      String("sensor"),
+      std.json.create_json_string(a, name)
     );
-    try row.set(try String("celsius"), degrees_json(value));
-    try row.set(
-      try String("critical_celsius"),
+    row.set(String("celsius"), degrees_json(value));
+    row.set(
+      String("critical_celsius"),
       degrees_json(critical)
     );
-    var status = try String("unavailable");
-    match number(value) {
-      Result.Ok(value) => {
-        var current = value;
-        status = try String("no threshold");
-        match number(critical) {
-          Result.Ok(value) => {
-            var limit = value;
-            status = try String("normal");
-            if (current >= limit) {
-              status = try String("critical");
-            }
-          },
-          (e: const ref IError) => {}
-        };
-      },
-      (e: const ref IError) => {}
-    };
-    try row.set(try String("status"), std.json.Json(status));
-    return Result.Ok(row);
+    var status = String("unavailable");
+
+    var operation_completed_5 = false;
+    try {
+      var value = number(value);
+      operation_completed_5 = true;
+      var current = value;
+      status = String("no threshold");
+
+      var operation_completed_4 = false;
+      try {
+        var value = number(critical);
+        operation_completed_4 = true;
+        var limit = value;
+        status = String("normal");
+        if (current >= limit) {
+          status = String("critical");
+        }
+      } catch {
+        if (operation_completed_4) {
+          throw;
+        }
+      }
+    } catch {
+      if (operation_completed_5) {
+        throw;
+      }
+    }
+
+    row.set(String("status"), std.json.Json(status));
+    return row;
   }
 
   /** Owns the latest resource rows and previous interface counters. */
@@ -354,25 +370,25 @@ public module system_monitor {
     var samples: i64 = 0;
 
     /** Creates empty collector state. */
-    init(a: ref HeapAllocator) std.AllocationResult<void> {
-      this.message = try String("");
+    init(a: ref HeapAllocator) throws {
+      this.message = String("");
 
-      this.lines = try Vec<String>(a, 32);
-      this.rows = try std.json.create_json_array(a);
-      this.message = try String("");
-      this.previous = try Vec<Traffic>(a, 16);
+      this.lines = Vec<String>(a, 32);
+      this.rows = std.json.create_json_array(a);
+      this.message = String("");
+      this.previous = Vec<Traffic>(a, 16);
     }
 
     /** Clears rate baselines when the selected view changes. */
-    method reset(a: ref HeapAllocator) std.AllocationResult<void> {
-      this.lines = try Vec<String>(a, 32);
-      this.rows = try std.json.create_json_array(a);
-      this.message = try String("");
-      this.previous = try Vec<Traffic>(a, 16);
+    method reset(a: ref HeapAllocator) void throws {
+      this.lines = Vec<String>(a, 32);
+      this.rows = std.json.create_json_array(a);
+      this.message = String("");
+      this.previous = Vec<Traffic>(a, 16);
       this.elapsed = -1;
       this.samples = 0;
 
-      return std.AllocationResult.Ok;
+      return;
     }
 
     /** Runs a fixed read-only system utility without shell interpolation. */
@@ -380,221 +396,225 @@ public module system_monitor {
       a: ref HeapAllocator,
       program: const ref String,
       arguments: const ref String
-    ) Result<void> {
-      var cmd = try std.process.Command(a, program);
-      var parts = try arguments.split_whitespace(a);
+    ) void throws {
+      var cmd = std.process.Command(a, program);
+      var parts = arguments.split_whitespace(a);
       for (var i: i64 = 0; i < parts.size(); i = i + 1) {
-        try cmd.add_arg(try parts.get(i));
+        cmd.add_arg(parts.get(i));
       }
-      var result = try cmd.output();
-      var rows = try result.stdout().split(a, 10u8);
+      var result = cmd.output();
+      var rows = result.stdout().split(a, 10u8);
       for (var i: i64 = 0; i < rows.size(); i = i + 1) {
-        if (not (try vector_read(rows, i)).is_empty()) {
-          try this.lines.push(
-            try (try vector_read(rows, i)).clone(a)
+        if (not (vector_read(rows, i)).is_empty()) {
+          this.lines.push(
+            (vector_read(rows, i)).clone(a)
           );
         }
       }
       if ((result.status()) != 0) {
-        this.message = try String("Unavailable: system utility could not complete.");
-        try this.lines.push(try this.message.clone(a));
+        this.message = String("Unavailable: system utility could not complete.");
+        this.lines.push(this.message.clone(a));
 
-        var errors = try result.stderr().split(a, 10u8);
+        var errors = result.stderr().split(a, 10u8);
         if (errors.size() > 0) {
-          try this.lines.push(
-            try (try vector_read(errors, 0)).clone(a)
+          this.lines.push(
+            (vector_read(errors, 0)).clone(a)
           );
 
-          try this.message.append(" ");
-          try this.message.append(try vector_read(errors, 0));
+          this.message.append(" ");
+          this.message.append(vector_read(errors, 0));
         }
       }
 
-      return Result.Ok;
+      return;
     }
 
     /** Reads filesystem capacity in portable POSIX blocks. */
-    method disks(a: ref HeapAllocator) Result<void> {
-      try this.lines.push(
-        try String("Filesystem usage (1024-byte blocks); Available excludes reserved space.")
+    method disks(a: ref HeapAllocator) void throws {
+      this.lines.push(
+        String("Filesystem usage (1024-byte blocks); Available excludes reserved space.")
       );
 
-      try this.lines.push(try String(""));
+      this.lines.push(String(""));
 
-      try this.command(
+      this.command(
         a,
-        try String("df"),
-        try String("-Pk")
+        String("df"),
+        String("-Pk")
       );
       for (var i: i64 = 3; i < this.lines.size(); i = i + 1) {
-        match disk_row(a, try this.lines.get(i)) {
-          Result.Ok(value) => {
-            try this.rows.push(value);
-          },
-          (e: const ref IError) => {}
-        };
+        var operation_completed_3 = false;
+        try {
+          var value = disk_row(a, this.lines.get(i));
+          operation_completed_3 = true;
+          this.rows.push(value);
+        } catch {
+          if (operation_completed_3) {
+            throw;
+          }
+        }
       }
       if (this.rows.len() == 0 and this.message.is_empty()) {
-        this.message = try String("No filesystem measurements available.");
+        this.message = String("No filesystem measurements available.");
       }
 
-      return Result.Ok;
+      return;
     }
 
     /** Lists all loaded system services, including inactive and failed units. */
-    method services(a: ref HeapAllocator) Result<void> {
+    method services(a: ref HeapAllocator) void throws {
       if (_target_is("linux")) {
-        try this.lines.push(
-          try String("System services: ACTIVE / SUB / LOAD / UNIT")
+        this.lines.push(
+          String("System services: ACTIVE / SUB / LOAD / UNIT")
         );
 
-        try this.lines.push(
-          try String("Includes inactive loaded units; failed units show 'failed'.")
+        this.lines.push(
+          String("Includes inactive loaded units; failed units show 'failed'.")
         );
 
-        try this.command(
+        this.command(
           a,
-          try String("systemctl"),
-          try String("list-units --type=service --all --no-pager --plain --no-legend")
+          String("systemctl"),
+          String("list-units --type=service --all --no-pager --plain --no-legend")
         );
         for (var i: i64 = 2; i < this.lines.size(); i = i + 1) {
-          var line: ref String = try this.lines.get(i);
-          var fields = try line.split_whitespace(a);
-          if (fields.size() >= 4 and (try vector_read(fields, 0)).ends_with(".service")) {
-            var parsed = try service_row(a, line);
-            var row = try padded(try vector_read(fields, 2), 11);
-            try row.append(try padded(try vector_read(fields, 3), 14));
-            try row.append(try padded(try vector_read(fields, 1), 11));
-            try row.append(try vector_read(fields, 0));
+          var line: ref String = this.lines.get(i);
+          var fields = line.split_whitespace(a);
+          if (fields.size() >= 4 and (vector_read(fields, 0)).ends_with(".service")) {
+            var parsed = service_row(a, line);
+            var row = padded(vector_read(fields, 2), 11);
+            row.append(padded(vector_read(fields, 3), 14));
+            row.append(padded(vector_read(fields, 1), 11));
+            row.append(vector_read(fields, 0));
             line = row;
-            try this.rows.push(parsed);
+            this.rows.push(parsed);
           }
         }
       } else {
-        try this.lines.push(
-          try String(
+        this.lines.push(
+          String(
             "Launch agents in the current launchd domain: PID / last exit status / label"
           )
         );
 
-        try this.command(
+        this.command(
           a,
-          try String("launchctl"),
-          try String("list")
+          String("launchctl"),
+          String("list")
         );
-        this.message = try String("Structured service metrics require systemd on Linux.");
+        this.message = String("Structured service metrics require systemd on Linux.");
       }
 
-      return Result.Ok;
+      return;
     }
 
     /** Reads per-interface traffic and calculates rates using actual elapsed time. */
-    method network(a: ref HeapAllocator, now: i64) Result<void> {
+    method network(a: ref HeapAllocator, now: i64) void throws {
       if (not _target_is("linux")) {
-        try this.lines.push(
-          try String("Interface totals from netstat; bytes, packets, errors and drops.")
+        this.lines.push(
+          String("Interface totals from netstat; bytes, packets, errors and drops.")
         );
 
-        try this.command(
+        this.command(
           a,
-          try String("netstat"),
-          try String("-ibn")
+          String("netstat"),
+          String("-ibn")
         );
-        this.message = try String("Structured network metrics require Linux procfs.");
-        return Result.Ok;
+        this.message = String("Structured network metrics require Linux procfs.");
+        return;
       }
-      try this.lines.push(
-        try String("INTERFACE  STATE  RX KiB/s  TX KiB/s  RX MiB  TX MiB  ERRORS  DROPS")
+      this.lines.push(
+        String("INTERFACE  STATE  RX KiB/s  TX KiB/s  RX MiB  TX MiB  ERRORS  DROPS")
       );
 
-      try this.lines.push(
-        try String("N/A rates need a baseline or indicate a counter reset.")
+      this.lines.push(
+        String("N/A rates need a baseline or indicate a counter reset.")
       );
 
-      var text = try std.io.read_to_string(a, "/proc/net/dev");
-      var rows = try text.split(a, 10u8);
-      var current = try Vec<Traffic>(a, 16);
+      var text = std.io.read_to_string(a, "/proc/net/dev");
+      var rows = text.split(a, 10u8);
+      var current = Vec<Traffic>(a, 16);
       for (var i: i64 = 2; i < rows.size(); i = i + 1) {
-        if ((try vector_read(rows, i)).is_empty()) {
+        if ((vector_read(rows, i)).is_empty()) {
           continue;
         }
-        var t = try parse_traffic(a, try vector_read(rows, i));
+        var t = parse_traffic(a, vector_read(rows, i));
         var rx: f64 = -1.0;
         var tx: f64 = -1.0;
         for (var j: i64 = 0; j < this.previous.size(); j = j + 1) {
-          var old: ref Traffic = try this.previous.get(j);
+          var old: ref Traffic = this.previous.get(j);
           if (old.name.equals(t.name)) {
             rx = traffic_rate(old.received, t.received, now - this.elapsed);
             tx = traffic_rate(old.sent, t.sent, now - this.elapsed);
           }
         }
-        var record = try std.json.create_json_object(a);
-        try record.set(
-          try String("interface"),
-          try std.json.create_json_string(a, t.name)
+        var record = std.json.create_json_object(a);
+        record.set(
+          String("interface"),
+          std.json.create_json_string(a, t.name)
         );
-        try record.set(
-          try String("rx_bytes_per_sec"),
+        record.set(
+          String("rx_bytes_per_sec"),
           rate_json(rx)
         );
-        try record.set(
-          try String("tx_bytes_per_sec"),
+        record.set(
+          String("tx_bytes_per_sec"),
           rate_json(tx)
         );
-        try record.set(
-          try String("rx_bytes"),
+        record.set(
+          String("rx_bytes"),
           std.json.Json(t.received)
         );
-        try record.set(
-          try String("tx_bytes"),
+        record.set(
+          String("tx_bytes"),
           std.json.Json(t.sent)
         );
-        try record.set(
-          try String("errors"),
+        record.set(
+          String("errors"),
           std.json.Json(t.errors)
         );
-        try record.set(try String("drops"), std.json.Json(t.drops));
+        record.set(String("drops"), std.json.Json(t.drops));
         if (rx >= 0.0) {
           rx = rx / 1024.0;
         }
         if (tx >= 0.0) {
           tx = tx / 1024.0;
         }
-        var path = try String("/sys/class/net/");
-        try path.append(t.name);
-        try path.append("/operstate");
-        var state = try attribute(a, path);
+        var path = String("/sys/class/net/");
+        path.append(t.name);
+        path.append("/operstate");
+        var state = attribute(a, path);
         if (state.is_empty()) {
-          state = try String("N/A");
+          state = String("N/A");
         }
-        try record.set(
-          try String("state"),
-          try std.json.create_json_string(a, state)
+        record.set(
+          String("state"),
+          std.json.create_json_string(a, state)
         );
-        try this.rows.push(record);
-        var row = try t.name.clone(a);
-        try row.append("  ");
-        try row.append(state);
-        try row.append("  ");
-        try row.append(try decimal(rx));
-        try row.append("  ");
-        try row.append(try decimal(tx));
-        try row.append("  ");
-        try row.append(try decimal(_convert<f64>(t.received) / 1048576.0));
+        this.rows.push(record);
+        var row = t.name.clone(a);
+        row.append("  ");
+        row.append(state);
+        row.append("  ");
+        row.append(decimal(rx));
+        row.append("  ");
+        row.append(decimal(tx));
+        row.append("  ");
+        row.append(decimal(_convert<f64>(t.received) / 1048576.0));
 
-        try row.append("  ");
-        try row.append(try decimal(_convert<f64>(t.sent) / 1048576.0));
-        try row.append("  ");
-        try row.append(t.errors);
-        try row.append("  ");
-        try row.append(t.drops);
-        try this.lines.push(row);
-        try current.push(t);
+        row.append("  ");
+        row.append(decimal(_convert<f64>(t.sent) / 1048576.0));
+        row.append("  ");
+        row.append(t.errors);
+        row.append("  ");
+        row.append(t.drops);
+        this.lines.push(row);
+        current.push(t);
       }
       this.previous = current;
       this.elapsed = now;
 
-      return Result.Ok;
+      return;
     }
 
     /** Adds a sensor with its optional critical threshold. */
@@ -603,32 +623,43 @@ public module system_monitor {
       name: String,
       path: const ref String,
       critical_path: const ref String
-    ) Result<void> {
-      var value = try attribute(a, path);
-      var critical = try attribute(a, critical_path);
-      try this.rows.push(try sensor_row(a, name, value, critical));
+    ) void throws {
+      var value = attribute(a, path);
+      var critical = attribute(a, critical_path);
+      this.rows.push(sensor_row(a, name, value, critical));
       var row = name;
-      try row.append("  ");
-      try row.append(try temperature_text(value));
-      try row.append(" C  critical ");
-      try row.append(try temperature_text(critical));
-      try row.append(" C");
-      match number(critical) {
-        Result.Ok(limit) => {
-          match number(value) {
-            Result.Ok(current) => {
-              if (current >= limit) {
-                try row.append("  CRITICAL");
-              }
-            },
-            (e: const ref IError) => {}
-          };
-        },
-        (e: const ref IError) => {}
-      };
-      try this.lines.push(row);
+      row.append("  ");
+      row.append(temperature_text(value));
+      row.append(" C  critical ");
+      row.append(temperature_text(critical));
+      row.append(" C");
 
-      return Result.Ok;
+      var operation_completed_2 = false;
+      try {
+        var limit = number(critical);
+        operation_completed_2 = true;
+
+        var operation_completed_1 = false;
+        try {
+          var current = number(value);
+          operation_completed_1 = true;
+          if (current >= limit) {
+            row.append("  CRITICAL");
+          }
+        } catch {
+          if (operation_completed_1) {
+            throw;
+          }
+        }
+      } catch {
+        if (operation_completed_2) {
+          throw;
+        }
+      }
+
+      this.lines.push(row);
+
+      return;
     }
 
     /** Collects readable temperature attributes from one hardware monitor. */
@@ -636,174 +667,245 @@ public module system_monitor {
       a: ref HeapAllocator,
       base: ref String,
       device: const ref String
-    ) Result<i64> {
+    ) i64 throws {
       var sensors: i64 = 0;
-      var chip = try attribute(
+      var chip = attribute(
         a,
-        try resource_path(a, base, try String("name"))
+        resource_path(a, base, String("name"))
       );
-      var files = try std.io.read_dir(a, base);
+      var files = std.io.read_dir(a, base);
       for (var j: i64 = 0; j < files.size(); j = j + 1) {
-        var name: ref String = (try files.get(j)).name();
+        var name: ref String = (files.get(j)).name();
         if (not name.starts_with("temp") or not name.ends_with("_input")) {
           continue;
         }
-        var stem = try name.substr(a, 0, name.length() - 6);
-        var label_name = try stem.clone(a);
-        try label_name.append("_label");
-        var label = try attribute(a, try resource_path(a, base, label_name));
+        var stem = name.substr(a, 0, name.length() - 6);
+        var label_name = stem.clone(a);
+        label_name.append("_label");
+        var label = attribute(a, resource_path(a, base, label_name));
         if (label.is_empty()) {
-          label = try stem.clone(a);
+          label = stem.clone(a);
         }
-        var title = try device.clone(a);
-        try title.append("/");
-        try title.append(chip);
-        try title.append("/");
-        try title.append(label);
-        var crit_name = try stem.clone(a);
-        try crit_name.append("_crit");
-        try this.sensor(
+        var title = device.clone(a);
+        title.append("/");
+        title.append(chip);
+        title.append("/");
+        title.append(label);
+        var crit_name = stem.clone(a);
+        crit_name.append("_crit");
+        this.sensor(
           a,
           title,
-          try resource_path(a, base, name),
-          try resource_path(a, base, crit_name)
+          resource_path(a, base, name),
+          resource_path(a, base, crit_name)
         );
         sensors = sensors + 1;
       }
 
-      return Result.Ok(sensors);
+      return sensors;
     }
 
     /** Discovers Linux hardware sensors and falls back to thermal zones. */
-    method temperatures(a: ref HeapAllocator) Result<void> {
-      try this.lines.push(
-        try String("SENSOR  TEMPERATURE  CRITICAL THRESHOLD")
+    method temperatures(a: ref HeapAllocator) void throws {
+      this.lines.push(
+        String("SENSOR  TEMPERATURE  CRITICAL THRESHOLD")
       );
 
       if (not _target_is("linux")) {
-        this.message = try String(
+        this.message = String(
           "Unavailable: macOS does not expose temperatures through a supported public API."
         );
-        try this.lines.push(try this.message.clone(a));
+        this.lines.push(this.message.clone(a));
 
-        return Result.Ok;
+        return;
       }
       var sensors: i64 = 0;
       if (std.io.exists("/sys/class/hwmon")) {
-        var devices = try std.io.read_dir(a, "/sys/class/hwmon");
+        var devices = std.io.read_dir(a, "/sys/class/hwmon");
         for (var i: i64 = 0; i < devices.size(); i = i + 1) {
-          var device: ref std.io.DirEntry = try devices.get(i);
-          var base = try resource_path(
+          var device: ref std.io.DirEntry = devices.get(i);
+          var base = resource_path(
             a,
-            try String("/sys/class/hwmon"),
+            String("/sys/class/hwmon"),
             device.name()
           );
-          match this.hwmon_device(a, base, device.name()) {
-            Result.Ok(value) => {
-              sensors = sensors + value;
-            },
-            (e: const ref IError) => {}
-          };
+          try {
+            var value = this.hwmon_device(a, base, device.name());
+            sensors = sensors + value;
+          } catch {}
         }
       }
       if (sensors == 0 and std.io.exists("/sys/class/thermal")) {
-        var zones = try std.io.read_dir(a, "/sys/class/thermal");
+        var zones = std.io.read_dir(a, "/sys/class/thermal");
         for (var i: i64 = 0; i < zones.size(); i = i + 1) {
-          var zone: ref std.io.DirEntry = try zones.get(i);
+          var zone: ref std.io.DirEntry = zones.get(i);
           if (not zone.name().starts_with("thermal_zone")) {
             continue;
           }
-          var base = try resource_path(
+          var base = resource_path(
             a,
-            try String("/sys/class/thermal"),
+            String("/sys/class/thermal"),
             zone.name()
           );
-          var label = try zone.name().clone(a);
-          try label.append("/");
-          try label.append(
-            try attribute(
+          var label = zone.name().clone(a);
+          label.append("/");
+          label.append(
+            attribute(
               a,
-              try resource_path(a, base, try String("type"))
+              resource_path(a, base, String("type"))
             )
           );
 
-          try this.sensor(
+          this.sensor(
             a,
             label,
-            try resource_path(a, base, try String("temp")),
-            try String("")
+            resource_path(a, base, String("temp")),
+            String("")
           );
           sensors = sensors + 1;
         }
       }
       if (sensors == 0) {
-        this.message = try String(
+        this.message = String(
           "Unavailable: no readable hardware temperature sensors were exposed by this host."
         );
-        try this.lines.push(try this.message.clone(a));
+        this.lines.push(this.message.clone(a));
       }
 
-      return Result.Ok;
+      return;
     }
 
     /** Collects the selected resource view and propagates unavailable data. */
-    method collect_view(a: ref HeapAllocator, name: const ref String, now: i64) Result<void> {
+    method collect_view(a: ref HeapAllocator, name: const ref String, now: i64) void throws {
       if (name.equals_literal("disk")) {
-        try this.disks(a);
+        this.disks(a);
       } else if (name.equals_literal("service")) {
-        try this.services(a);
+        this.services(a);
       } else if (name.equals_literal("network")) {
-        try this.network(a, now);
+        this.network(a, now);
       } else if (name.equals_literal("temperature")) {
-        try this.temperatures(a);
+        this.temperatures(a);
       }
 
-      return Result.Ok;
+      return;
     }
 
     /** Collects one view and keeps failures visible without exiting the monitor. */
-    method sample(
-      a: ref HeapAllocator,
-      name: const ref String,
-      now: i64
-    ) std.AllocationResult<void> {
-      this.lines = try Vec<String>(a, 32);
-      this.rows = try std.json.create_json_array(a);
-      this.message = try String("");
-      match this.collect_view(a, name, now) {
-        Result.Ok => {},
-        (e: const ref IError) => {
-          var message = try String("Unavailable: ");
-          try message.append(try e.message());
+    method sample(a: ref HeapAllocator, name: const ref String, now: i64) void throws {
+      this.lines = Vec<String>(a, 32);
+      this.rows = std.json.create_json_array(a);
+      this.message = String("");
+      try {
+        this.collect_view(a, name, now);
+      } catch (e: std.Error) {
+        var message = String("Unavailable: ");
+        message.append(e.message());
 
-          this.message = try message.clone(a);
-          try this.lines.push(message);
-        }
-      };
+        this.message = message.clone(a);
+        this.lines.push(message);
+      } catch (e: std.AllocationError) {
+        var message = String("Unavailable: ");
+        message.append(e.message());
+
+        this.message = message.clone(a);
+        this.lines.push(message);
+      } catch (e: std.InvalidArgumentError) {
+        var message = String("Unavailable: ");
+        message.append(e.message());
+
+        this.message = message.clone(a);
+        this.lines.push(message);
+      } catch (e: std.OverflowError) {
+        var message = String("Unavailable: ");
+        message.append(e.message());
+
+        this.message = message.clone(a);
+        this.lines.push(message);
+      } catch (e: std.IndexOutOfBoundsError) {
+        var message = String("Unavailable: ");
+        message.append(e.message());
+
+        this.message = message.clone(a);
+        this.lines.push(message);
+      } catch (e: std.NotFoundError) {
+        var message = String("Unavailable: ");
+        message.append(e.message());
+
+        this.message = message.clone(a);
+        this.lines.push(message);
+      } catch (e: std.EmptyError) {
+        var message = String("Unavailable: ");
+        message.append(e.message());
+
+        this.message = message.clone(a);
+        this.lines.push(message);
+      } catch (e: std.IOError) {
+        var message = String("Unavailable: ");
+        message.append(e.message());
+
+        this.message = message.clone(a);
+        this.lines.push(message);
+      } catch (e: std.ConversionError) {
+        var message = String("Unavailable: ");
+        message.append(e.message());
+
+        this.message = message.clone(a);
+        this.lines.push(message);
+      } catch (e: std.DivisionByZeroError) {
+        var message = String("Unavailable: ");
+        message.append(e.message());
+
+        this.message = message.clone(a);
+        this.lines.push(message);
+      } catch (e: std.ArithmeticError) {
+        var message = String("Unavailable: ");
+        message.append(e.message());
+
+        this.message = message.clone(a);
+        this.lines.push(message);
+      } catch (e: std.json.JsonError) {
+        var message = String("Unavailable: ");
+        message.append(e.message());
+
+        this.message = message.clone(a);
+        this.lines.push(message);
+      } catch (e: std.xml.XmlError) {
+        var message = String("Unavailable: ");
+        message.append(e.message());
+
+        this.message = message.clone(a);
+        this.lines.push(message);
+      } catch (e: std.ProtoDecodeError) {
+        var message = String("Unavailable: ");
+        message.append(e.message());
+
+        this.message = message.clone(a);
+        this.lines.push(message);
+      }
       this.samples = this.samples + 1;
 
-      return std.AllocationResult.Ok;
+      return;
     }
 
     /** Renders a scrollable page while preserving the title and navigation hints. */
-    method draw(a: ref HeapAllocator, terminal: ref Terminal, name: const ref String) Result<void> {
+    method draw(a: ref HeapAllocator, terminal: ref Terminal, name: const ref String) void throws {
       if (terminal.paused) {
-        return Result.Ok;
+        return;
       }
-      try terminal.size(a);
-      var page = try Vec<String>(a, 32);
-      var title = try String("SYSTEM MONITOR / ");
-      try title.append(name);
-      try title.append("  |  sample ");
-      try title.append(this.samples);
-      try page.push(title);
+      terminal.size(a);
+      var page = Vec<String>(a, 32);
+      var title = String("SYSTEM MONITOR / ");
+      title.append(name);
+      title.append("  |  sample ");
+      title.append(this.samples);
+      page.push(title);
       if (terminal.tabs_focused) {
-        try page.push(
-          try String("TABS: Left/Right choose  Down/Enter view  1-5 jump  q quit")
+        page.push(
+          String("TABS: Left/Right choose  Down/Enter view  1-5 jump  q quit")
         );
       } else {
-        try page.push(
-          try String("1-5 tabs  Tab focus  Up/Down scroll  space pause  q quit")
+        page.push(
+          String("1-5 tabs  Tab focus  Up/Down scroll  space pause  q quit")
         );
       }
       var visible = terminal.rows - 6;
@@ -823,16 +925,16 @@ public module system_monitor {
         visible = this.lines.size();
       }
       for (var i = first; i < this.lines.size() and i < first + visible; i = i + 1) {
-        try page.push(try (try this.lines.get(i)).clone(a));
+        page.push((this.lines.get(i)).clone(a));
       }
-      var footer = try String("Rows ");
-      try footer.append(first + 1);
-      try footer.append(" / ");
-      try footer.append(this.lines.size());
-      try page.push(footer);
-      try panel(a, terminal, page, 0, name);
+      var footer = String("Rows ");
+      footer.append(first + 1);
+      footer.append(" / ");
+      footer.append(this.lines.size());
+      page.push(footer);
+      panel(a, terminal, page, 0, name);
 
-      return Result.Ok;
+      return;
     }
   }
 }
