@@ -70,15 +70,9 @@ jobs:
         run: brew install llvm@20 libarchive
 
       - name: Install latest Sun compiler and matching standard libraries
-        run: scripts/ci-toolchain.sh
-
-      - name: Select target standard library
-        env:
-          TARGET_TRIPLE: ${{ matrix.triple }}
         run: |
+          scripts/ci-toolchain.sh
           echo "$GITHUB_WORKSPACE/.ci/toolchain/bin" >> "$GITHUB_PATH"
-          mkdir -p build
-          cp ".ci/toolchain/lib/sun/$TARGET_TRIPLE/stdlib.moon" build/stdlib.moon
 
       - name: Check formatting
         run: sun fmt --check src tests
