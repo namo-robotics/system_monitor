@@ -2,6 +2,7 @@
 public module system_monitor {
 
   using std;
+  using std.mem;
 
   /** Groups related behavioral tests. */
   module linux_tests {

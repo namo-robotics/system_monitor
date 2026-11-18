@@ -2,6 +2,7 @@
 public module system_monitor {
 
   using std;
+  using std.mem;
 
   /** Groups resource collector and navigation checks. */
   module resource_tests {

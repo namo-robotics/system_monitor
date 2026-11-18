@@ -2,6 +2,7 @@
 public module system_monitor {
 
   using std;
+  using std.mem;
 
   /** Sends an arrow sequence one byte at a time, as it may arrive from a terminal. */
   function tab_test_arrow(terminal: ref Terminal, options: ref Options, final: u8) void throws {

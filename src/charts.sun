@@ -2,6 +2,7 @@
 public module system_monitor {
 
   using std;
+  using std.mem;
 
   /** Bounds text length and removes terminal control characters. */
   function safe_text(a: const ref HeapAllocator, s: const ref String, width: i64) String throws {

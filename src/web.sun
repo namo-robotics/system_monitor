@@ -2,6 +2,7 @@
 public module system_monitor {
 
   using std;
+  using std.mem;
   using sun_serve;
 
   /** Reports that this target can host the browser dashboard. */

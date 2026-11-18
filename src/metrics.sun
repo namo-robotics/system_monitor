@@ -2,6 +2,7 @@
 public module system_monitor {
 
   using std;
+  using std.mem;
 
   /** Parses an integer or reports invalid input. */
   function number(s: const ref String) i64 throws {

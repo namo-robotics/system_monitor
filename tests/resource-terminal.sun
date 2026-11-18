@@ -2,6 +2,7 @@
 public module system_monitor {
 
   using std;
+  using std.mem;
 
   /** Creates one optional measurement for graph continuity tests. */
   function resource_test_frame(

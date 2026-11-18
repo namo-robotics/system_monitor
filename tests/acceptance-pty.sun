@@ -2,6 +2,7 @@
 public module acceptance {
 
   using std;
+  using std.mem;
 
   /** Opens the controller side of a pseudo-terminal. */
   extern "C" function posix_openpt(flags: i32) i32;

@@ -2,6 +2,7 @@
 public module system_monitor {
 
   using std;
+  using std.mem;
 
   /** Reports that no server library is published for this target. */
   function web_supported() bool {

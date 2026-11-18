@@ -2,6 +2,7 @@
 public module system_monitor {
 
   using std;
+  using std.mem;
 
   /** Returns a distinct terminal color for each active graph series. */
   function trend_color(slot: i64) static_ptr<u8> {

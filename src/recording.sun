@@ -2,6 +2,7 @@
 public module system_monitor {
 
   using std;
+  using std.mem;
 
   /** Describes the recording version, cadence, and measurement units. */
   function metadata(a: ref HeapAllocator, o: ref Options) String throws {

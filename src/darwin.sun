@@ -2,6 +2,7 @@
 public module system_monitor {
 
   using std;
+  using std.mem;
 
   /** Lists process identifiers visible to the caller. */
   extern "C" function pm_listpids(kind: u32, info: u32, out: raw_ptr<u8>, size: i32) i32 as "proc_listpids";

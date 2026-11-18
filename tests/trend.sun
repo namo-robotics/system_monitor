@@ -2,6 +2,7 @@
 public module system_monitor {
 
   using std;
+  using std.mem;
 
   /** Builds a fixture with opposite CPU and memory rankings. */
   function trend_fixture(a: const ref HeapAllocator) Frame throws {

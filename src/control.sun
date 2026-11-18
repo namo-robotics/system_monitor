@@ -2,6 +2,7 @@
 public module system_monitor {
 
   using std;
+  using std.mem;
 
   /** Reads the monitor's own PID so it cannot accidentally signal itself. */
   extern "C" function pm_getpid() i32 as "getpid";

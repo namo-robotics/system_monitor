@@ -2,6 +2,7 @@
 public module system_monitor {
 
   using std;
+  using std.mem;
 
   /** Formats signed measurements without using negative values as missing markers. */
   function resource_decimal(value: f64) String throws {

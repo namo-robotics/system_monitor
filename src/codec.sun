@@ -2,6 +2,7 @@
 public module system_monitor {
 
   using std;
+  using std.mem;
 
   /** Serializes one process with nulls for unavailable measurements. */
   function process_json(a: ref HeapAllocator, p: ref Process) std.json.Json throws {

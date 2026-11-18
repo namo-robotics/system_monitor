@@ -2,6 +2,7 @@
 public module system_monitor {
 
   using std;
+  using std.mem;
 
   /** Retains complete frames within a duration and estimated memory budget. */
   class History {

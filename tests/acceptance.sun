@@ -1,5 +1,6 @@
 /** Exercises native binaries, recordings, packaged resources, and HTTP hosting. */
 using std;
+using std.mem;
 using acceptance;
 
 /** Runs the native acceptance suite. */

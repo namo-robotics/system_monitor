@@ -2,6 +2,7 @@
 public module system_monitor {
 
   using std;
+  using std.mem;
 
   /** Copies a checked buffer element without keeping its storage borrowed. */
   function buffer_value<T: _Primitive>(buffer: const ref ContiguousBuffer<T>, index: i64) T throws {

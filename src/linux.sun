@@ -2,6 +2,7 @@
 public module system_monitor {
 
   using std;
+  using std.mem;
 
   /** Reads a POSIX system configuration value. */
   extern "C" function pm_sysconf(name: i32) i64 as "sysconf";
@@ -155,9 +156,13 @@ public module system_monitor {
     if (fd < 0) {
       throw Error(1, "process handle unavailable");
     }
-    var result = signal_pinned(a, pid, start, signal, fd);
+    try {
+      signal_pinned(a, pid, start, signal, fd);
+    } catch {
+      unsafe { pm_close(fd); };
+      throw;
+    }
     unsafe { pm_close(fd); };
-    result;
 
     return;
   }

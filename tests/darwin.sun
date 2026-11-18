@@ -2,6 +2,7 @@
 public module system_monitor {
 
   using std;
+  using std.mem;
 
   /** Groups tests that require native libproc and Mach clocks. */
   module darwin_tests {
