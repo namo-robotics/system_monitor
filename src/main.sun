@@ -46,7 +46,7 @@ manifest {
     }
   }
   libraries: [
-    "stdlib.moon"
+    "sun/stdlib"
   ]
   test_files: [
     "../tests/resource-terminal.sun",

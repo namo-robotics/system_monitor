@@ -681,6 +681,6 @@ manifest {
     "acceptance-pty.sun"
   ]
   libraries: [
-    "stdlib.moon"
+    "sun/stdlib"
   ]
 }
