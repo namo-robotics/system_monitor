@@ -16,7 +16,9 @@ output = pathlib.Path(sys.argv[1])
 text = (root / "src/main.sun").read_text()
 if sys.argv[2].startswith("x86_64-") and "linux" in sys.argv[2].lower() and sys.argv[3] != "0":
     text = text.replace('"web-disabled.sun"', '"web.sun"')
-    text = text.replace('"stdlib.moon"', '"stdlib.moon", "${namo-robotics/sun_serve}/lib/sun_serve.moon"')
+    if text.count('"sun/stdlib"') != 1:
+        raise SystemExit("expected one sun/stdlib import in src/main.sun")
+    text = text.replace('"sun/stdlib"', '"sun/stdlib", "namo-robotics/sun_serve/sun_serve"')
 
 
 def source_path(match):
