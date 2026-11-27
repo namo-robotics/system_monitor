@@ -29,25 +29,6 @@ manifest {
     "$SUN_BUILD/version.sun",
     "web-disabled.sun"
   ]
-  target: {
-    linux: {
-      source_files: [
-        "linux.sun"
-      ] test_files: [
-        "../tests/linux.sun"
-      ]
-    }
-    macos: {
-      source_files: [
-        "darwin.sun"
-      ] test_files: [
-        "../tests/darwin.sun"
-      ]
-    }
-  }
-  libraries: [
-    "sun/stdlib"
-  ]
   test_files: [
     "../tests/resource-terminal.sun",
     "../tests/terminal-tabs.sun",
@@ -56,4 +37,25 @@ manifest {
     "../tests/trend.sun",
     "../tests/control.sun"
   ]
+  libraries: [
+    "sun/stdlib"
+  ]
+  target: {
+    linux: {
+      source_files: [
+        "linux.sun"
+      ]
+      test_files: [
+        "../tests/linux.sun"
+      ]
+    }
+    macos: {
+      source_files: [
+        "darwin.sun"
+      ]
+      test_files: [
+        "../tests/darwin.sun"
+      ]
+    }
+  }
 }

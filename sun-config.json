@@ -1,5 +1,54 @@
 {
+  "package_id": "namo-robotics/system_monitor",
   "root": true,
+  "entrypoints": [
+    {
+      "name": "system_monitor",
+      "path": "${SUN_BUILD}/main.sun",
+      "type": "binary",
+      "export": true,
+      "steps": [
+        "version",
+        "entrypoint"
+      ],
+      "compile_args": {
+        "default": [
+          "--static"
+        ],
+        "target": {
+          "arm64-apple-darwin": [
+            "--dynamic",
+            "-lproc"
+          ]
+        }
+      }
+    },
+    {
+      "name": "acceptance",
+      "path": "tests/acceptance.sun",
+      "type": "binary"
+    }
+  ],
+  "packages": [
+    {
+      "name": "system_monitor",
+      "entrypoints": [
+        "system_monitor"
+      ],
+      "resources": [
+        {
+          "path": "assets/dashboard.html",
+          "destination": "share/system_monitor/dashboard.html"
+        }
+      ]
+    }
+  ],
+  "exports": [
+    {
+      "path": "assets/dashboard.html",
+      "destination": "share/system_monitor/dashboard.html"
+    }
+  ],
   "dependencies": [
     {
       "type": "git",
@@ -17,49 +66,6 @@
       ]
     }
   ],
-  "entrypoints": [
-    {
-      "path": "${SUN_BUILD}/main.sun",
-      "type": "binary",
-      "name": "system_monitor",
-      "steps": [
-        "version",
-        "entrypoint"
-      ],
-      "export": true,
-      "compile_args": {
-        "default": [
-          "--static"
-        ],
-        "target": {
-          "arm64-apple-darwin": [
-            "--dynamic",
-            "-lproc"
-          ]
-        }
-      }
-    },
-    {
-      "path": "tests/acceptance.sun",
-      "type": "binary",
-      "name": "acceptance"
-    }
-  ],
-  "packages": [
-    {
-      "name": "system_monitor",
-      "entrypoints": [
-        "system_monitor"
-      ],
-      "resources": [
-        {
-          "path": "assets/dashboard.html",
-          "destination": "share/system_monitor/dashboard.html"
-        }
-      ]
-    }
-  ],
-  "package_id": "namo-robotics/system_monitor",
   "steps": [
     {
       "name": "version",
@@ -89,12 +95,6 @@
       "outputs": [
         "${SUN_BUILD}/main.sun"
       ]
-    }
-  ],
-  "exports": [
-    {
-      "path": "assets/dashboard.html",
-      "destination": "share/system_monitor/dashboard.html"
     }
   ]
 }
